@@ -1032,11 +1032,137 @@ function viewReview() {
   return { html: html, mount: function (el) { el.querySelectorAll('[data-rq]').forEach(function (t) { t.oninput = function () { S.review = S.review || {}; S.review[t.getAttribute('data-rq')] = t.value; save(); }; }); } };
 }
 
+/* ===================================================== 파도에게 묻기 (AI 봇) */
+var AIKEY = 'pado.ai';
+function aiConf() { try { return JSON.parse(localStorage.getItem(AIKEY) || '{}'); } catch (e) { return {}; } }
+function aiSave(c) { try { localStorage.setItem(AIKEY, JSON.stringify(c)); } catch (e) {} }
+var TOOLS = {
+  hunger: ['허기 테스트', '#/t/hunger'], rain: ['RAIN으로 파도 타기', '#/t/rain'], c1: ['갈망의 도구 1', '#/t/c1'], c2: ['갈망의 도구 2 · 상상하기', '#/t/c2'],
+  plateau: ['쾌락 안정기 켜고 먹기', '#/t/plateau'], five: ['다섯 손가락 호흡', '#/g/fivefinger'], kindness: ['친절 연습', '#/g/kindness'], loop: ['습관 루프 적기', '#/t/loop'],
+  retro: ['돌아보기', '#/f/retro'], bodyscan: ['바디 스캔', '#/g/bodyscan'], noting: ['주목하기', '#/t/noting'], bank: ['내 정보은행 보기', '#/bank'], today: ['오늘의 실천', '#/'], committee: ['머릿속 위원회', '#/f/committee']
+};
+var ASK_SUGGEST = ['상사한테 혼나서 머리가 띵할 정도로 단 게 당겨요', '밤만 되면 야식이 너무 먹고 싶어요', '방금 폭식해버렸어요', '오늘은 아무것도 하기 싫어요'];
+
+function userContext() {
+  var n = currentDay(), d = n <= 21 ? P.days[n - 1] : null, out = [];
+  out.push('오늘 날짜: ' + fLong(today()));
+  out.push(d ? '현재 진도: Day ' + n + ' «' + d.title + '» (' + P.steps[d.step].name + ')' : '21일 챌린지를 모두 마침');
+  if (S.goal && S.goal.items) out.push('내 목표: ' + S.goal.items.join(', ') + (S.goal.why ? ' (이유: ' + S.goal.why + ')' : ''));
+  if (S.focusFood) out.push('집중하고 있는 고민 음식: ' + S.focusFood);
+  var c1 = logsOf('c1').slice(-6);
+  if (c1.length) out.push('최근 갈망의 도구 1 기록: ' + c1.map(function (l) { return l.food + ' ' + signed(l.total) + (l.gain ? ' («' + l.gain + '»)' : ''); }).join(' / '));
+  var rains = logsOf('rain');
+  if (rains.length) out.push('RAIN ' + rains.length + '번, 갈망이 지나간 평균 시간 약 ' + Math.max(1, Math.round(sum(rains.map(function (r) { return r.duration || 0; })) / rains.length / 60000)) + '분');
+  var en = logsOf('enchant').slice(-3);
+  if (en.length) out.push('매혹 정보은행(먹고 나서도 좋았던 음식): ' + en.map(function (l) { return l.food; }).join(', '));
+  var com = S.committee.filter(function (m) { return !m.helpful; }).slice(0, 4);
+  if (com.length) out.push('머릿속 위원회: ' + com.map(function (m) { return m.name; }).join(', '));
+  var learned = P.days.filter(function (x) { return S.days[x.n] && S.days[x.n].done; }).map(function (x) { return x.title; });
+  if (learned.length) out.push('이미 배운 Day: ' + learned.join(', '));
+  return out.join('\n');
+}
+function systemPrompt() {
+  var tools = Object.keys(TOOLS).map(function (k) { return '[[' + k + ']] ' + TOOLS[k][0]; }).join(', ');
+  return [
+    '너는 «파도»라는 개인용 앱 안의 상담 봇이야. 사용자는 저드슨 브루어의 『식탐 해방』(원제 The Hunger Habit) 21일 챌린지를 따라 하고 있고, 끈기가 부족해 자주 멈췄다 다시 시작하는 사람이야.',
+    '책의 핵심: 의지력으로 참는 게 아니라 알아차림으로 습관의 보상 가치를 바꾼다. 습관 루프는 계기→행동→결과. 허기 테스트로 스트레스·감정 / 습관 / 진짜 허기를 구별한다(애매하면 마지막 식사 후 4–5시간 기준). 쾌락 안정기: 한 입마다 즐거움이 줄기 시작하면 멈춰도 되는 신호, 그 너머는 탐닉의 절벽. 갈망의 도구 1: 먹으며 주의를 기울이고 다 먹은 뒤 양·몸·기분·생각을 매겨 “여기서 무엇을 얻었나”를 묻는다. 갈망의 도구 2: 먹기 전에 그 과정을 상상하고 충동이 얼마나 변했는지 본다. RAIN: 알아차리고 마음을 가라앉히기 → 밀어내지 않고 받아들이기 → 호기심으로 몸의 감각 탐색 → 짧은 이름 붙이기(주목하기). 갈망은 파도처럼 올라왔다 저절로 지나가며 보통 몇 분이면 된다. 저항하거나 시계를 보며 버티면 오히려 커진다. 다섯 손가락 호흡은 걱정으로 머리가 꽉 찰 때. 친절과 자기 연민이 핵심이고, 좌절은 실패가 아니라 정보다. 환멸감 정보은행(먹고 나서 실제로 별로였던 기억)과 매혹 정보은행(먹고 나서도 좋았던 음식)을 쌓는다.',
+    '답하는 법: 한국어 해요체로, 따뜻하고 짧게(3~6문장). 첫 문장은 지금의 마음을 알아주기. 그다음 지금 바로 할 수 있는 몸 중심의 행동 하나를 구체적으로. 먹지 말라고 금지하지 말고, 먹더라도 주의를 기울이며 정보를 모으면 된다고 선택권을 줘. 사용자의 기록이 있으면 그걸 근거로 써(예: 지난번 그 음식 먹고 어땠는지). 칼로리, 체중, 식단 규칙 얘기는 하지 마. 마지막 줄에 앱 도구를 1~2개만 다음 토큰 그대로 넣어: ' + tools + '. 토큰은 버튼으로 바뀌니 다른 설명 없이 토큰만 적어.',
+    '안전: 구토, 극단적 굶기, 자해나 죽고 싶다는 말이 나오면 도구보다 마음을 먼저 살피고, 전문가 도움(자살예방상담전화 109, 정신건강복지센터, 병원)을 부드럽게 권해. 너는 의사가 아니야.',
+    '사용자 정보:\n' + userContext()
+  ].join('\n\n');
+}
+function offlineReply(q) {
+  var t = q.replace(/\s/g, '');
+  function has(words) { return words.some(function (w) { return t.indexOf(w) >= 0; }); }
+  if (has(['죽고', '자해', '토하', '구토', '게워', '사라지고싶'])) return { text: '그 말을 꺼내줘서 고마워요. 지금 많이 힘든 것 같아요. 이건 혼자 버티지 않아도 되는 일이에요. 자살예방상담전화 109(24시간)나 가까운 정신건강복지센터, 병원에 지금의 마음을 그대로 이야기해 주세요. 그동안은 손을 가슴에 얹고 숨을 천천히 내쉬어 봐요.', tools: ['kindness', 'five'] };
+  var food = ['단거', '단게', '달달', '초콜릿', '과자', '빵', '아이스크림', '라면', '치킨', '떡볶이', '케이크', '야식', '피자', '술'].filter(function (w) { return t.indexOf(w) >= 0; })[0];
+  var past = '';
+  if (S.focusFood || food) {
+    var rec = logsOf('c1', function (l) { return (S.focusFood && l.food === S.focusFood) || (food && l.food.replace(/\s/g, '').indexOf(food) >= 0); }).slice(-1)[0];
+    if (rec) past = ' 지난번 ' + rec.food + '을(를) 먹었을 때 합계는 ' + signed(rec.total) + '였어요' + (rec.gain ? ': “' + rec.gain + '”' : '') + '. 그 느낌을 먼저 떠올려 봐요.';
+  }
+  if (has(['폭식', '먹어버렸', '과식', '다먹었', '후회', '망했', '또먹'])) return { text: '이미 먹었어도 괜찮아요. 좌절은 실패가 아니라 다음을 위한 정보예요. 지금 배와 기분이 어떤지, 판단 말고 몸이 하는 말을 그대로 적어두면 그게 바로 환멸감 정보은행이 돼요. 머릿속에서 “넌 또 그랬어” 하는 목소리가 들리면, 그 위원에게 이름을 붙여봐요.', tools: ['c1', 'retro'] };
+  if (has(['혼나', '혼났', '스트레스', '화나', '화가', '짜증', '속상', '우울', '슬퍼', '불안', '외로', '힘들', '서러', '억울'])) return { text: '많이 속상했겠어요. 지금 당기는 건 배가 아니라 마음이 보내는 신호일 가능성이 커요. 30초만, 그 느낌이 몸 어디에 있는지 찾아봐요. 가슴이 조이는지, 얼굴이 뜨거운지. 갈망은 파도처럼 올라왔다가 보통 몇 분이면 지나가요.' + past + ' 그래도 먹고 싶으면 먹어도 돼요. 대신 한 입씩 느끼면서요.', tools: ['rain', 'hunger'] };
+  if (has(['심심', '지루', '습관', '밤만', '밤에', '야식', '자기전', '늘', '맨날', '자꾸'])) return { text: '늘 그맘때 찾게 되는 거라면 습관 루프일 가능성이 커요. 먹기 전에 그 장면을 끝까지 상상해 봐요. 먹는 동안, 다 먹은 뒤 배와 기분, 다음 날 아침까지.' + past + ' 상상한 뒤에 충동이 얼마나 변했는지 보는 것만으로도 뇌가 다시 배워요.', tools: ['c2', 'loop'] };
+  if (has(['배고', '꼬르륵', '공복', '안먹었', '굶었', '허기'])) return { text: '진짜 배고픔일 수도 있어요. 허기 테스트로 확인해 보고, 몸이 연료를 원하는 거면 먹어도 괜찮아요. 한 입마다 즐거움이 줄어드는 순간을 찾아보세요. 거기가 멈춰도 되는 자리예요.', tools: ['hunger', 'plateau'] };
+  if (has(['하기싫', '귀찮', '포기', '못하겠', '끈기', '의지', '작심삼일', '지쳤'])) return { text: '하기 싫은 날도 있어요. 쉬어간 날은 실패가 아니고, 파도는 다시 오면 그때 타면 돼요. 오늘은 딱 하나만, 10초짜리로 해봐요. 지금 기분에 이름 하나 붙이기, 그거면 충분해요.', tools: ['noting', 'today'] };
+  if (food) return { text: food + '이(가) 당기는군요. 먼저 지금이 진짜 허기인지, 마음이 보내는 신호인지 살펴봐요.' + past + ' 어느 쪽이든 먹는다면 한 입씩 주의를 기울이며 정보를 모으면 돼요.', tools: ['hunger', 'c2'] };
+  return { text: '지금 어떤 상황인지 조금만 더 들려줄래요? 먹고 싶은 마음이 들었다면, 먼저 허기 테스트로 그게 몸의 신호인지 마음의 신호인지 살펴보는 게 좋아요.', tools: ['hunger', 'rain'] };
+}
+function renderMsg(m) {
+  var text = m.text || '', tools = (m.tools || []).slice();
+  text = text.replace(/\[\[(\w+)\]\]/g, function (_, k) { if (TOOLS[k] && tools.indexOf(k) < 0) tools.push(k); return ''; }).trim();
+  if (m.role === 'user') return '<div style="align-self:flex-end;max-width:82%;background:var(--sea);color:#fff;border-radius:18px 18px 6px 18px;padding:11px 14px;font-size:15px;line-height:1.55">' + nl(text) + '</div>';
+  return '<div style="align-self:flex-start;max-width:90%;display:flex;flex-direction:column;gap:8px"><div style="background:var(--surface);border-radius:18px 18px 18px 6px;padding:12px 15px;font-size:15px;line-height:1.65">' + nl(text) + '</div>' +
+    (tools.length ? '<div class="wrap">' + tools.map(function (k) { return TOOLS[k] ? '<a class="chip on" href="' + TOOLS[k][1] + '" style="text-decoration:none">' + TOOLS[k][0] + '</a>' : ''; }).join('') + '</div>' : '') + '</div>';
+}
+function viewAsk() {
+  if (!S.chat) S.chat = [];
+  var conf = aiConf(), ai = !!conf.key;
+  var html = '<main class="screen plain fade" style="padding-bottom:calc(var(--safe-bottom) + 150px)">' + topbar(closeBtn('#/'), '파도에게 묻기', '<button class="iconbtn" data-act="clear" aria-label="대화 지우기" style="color:var(--mute)">' + I.trash + '</button>');
+  html += '<div class="row" style="justify-content:center"><span class="pill" style="' + (ai ? '' : 'background:#E6ECE8;color:var(--mute)') + '">' + (ai ? 'AI 대화 중' : '기본 모드 · 책 기반 안내') + '</span></div>';
+  html += '<div style="display:flex;flex-direction:column;gap:12px">';
+  html += renderMsg({ role: 'bot', text: '지금 어떤 상황이에요? 먹고 싶은 마음, 속상한 일, 이미 먹어버린 일, 뭐든 편하게 적어주세요. 책의 방법으로 지금 할 수 있는 걸 같이 찾아볼게요.' });
+  S.chat.forEach(function (m) { html += renderMsg(m); });
+  if (T.waiting) html += '<div style="align-self:flex-start;background:var(--surface);border-radius:18px;padding:12px 16px;color:var(--mute)" aria-live="polite">생각하는 중…</div>';
+  html += '</div>';
+  if (!S.chat.length) html += '<div class="wrap">' + ASK_SUGGEST.map(function (s) { return '<button class="chip" data-act="sug" data-arg="' + esc(s) + '">' + esc(s) + '</button>'; }).join('') + '</div>';
+  if (!ai) html += '<p class="xs muted" style="text-align:center">설정에서 Claude API 키를 넣으면 내 기록까지 읽고 대화하는 AI로 바뀌어요.</p>';
+  html += '</main>';
+  html += '<div class="foot"><div class="in"><div class="row" style="align-items:flex-end"><textarea class="input" id="askq" rows="1" placeholder="지금 어떤 상황인가요?" style="min-height:52px;max-height:140px;resize:none">' + esc(T.draft || '') + '</textarea><button class="btn primary" data-act="send" style="width:52px;padding:0;flex-shrink:0" aria-label="보내기"' + (T.waiting ? ' disabled' : '') + '><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div></div></div>';
+  A.sug = function (a) { T.draft = a; A.send(); };
+  A.clear = function () { if (!S.chat.length || confirm('대화를 지울까요?')) { S.chat = []; save(); render(true); } };
+  A.send = function () {
+    var q = (T.draft || '').trim(); if (!q || T.waiting) return;
+    S.chat.push({ role: 'user', text: q, at: Date.now() }); T.draft = ''; save();
+    var c = aiConf();
+    if (!c.key) { var r = offlineReply(q); S.chat.push({ role: 'bot', text: r.text, tools: r.tools, at: Date.now() }); trimChat(); save(); render(true); scrollEnd(); return; }
+    T.waiting = true; render(true); scrollEnd();
+    var msgs = S.chat.slice(-12).map(function (m) { return { role: m.role === 'user' ? 'user' : 'assistant', content: m.role === 'user' ? m.text : (m.text + (m.tools && m.tools.length ? '\n' + m.tools.map(function (k) { return '[[' + k + ']]'; }).join(' ') : '')) }; });
+    while (msgs.length && msgs[0].role !== 'user') msgs.shift();
+    fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': c.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: c.model || 'claude-sonnet-5-5', max_tokens: 2000, system: systemPrompt(), messages: msgs })
+    }).then(function (res) { return res.json().then(function (j) { return { ok: res.ok, j: j }; }); }).then(function (r) {
+      T.waiting = false;
+      if (!r.ok) throw new Error((r.j && r.j.error && r.j.error.message) || 'API 오류');
+      var text = (r.j.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n').trim();
+      S.chat.push({ role: 'bot', text: text || '…', at: Date.now() }); trimChat(); save();
+      if (location.hash.indexOf('#/ask') === 0) { render(true); scrollEnd(); }
+    }).catch(function (e) {
+      T.waiting = false;
+      var r = offlineReply(q);
+      S.chat.push({ role: 'bot', text: '(AI에 연결하지 못해서 기본 안내로 답할게요: ' + e.message + ')\n\n' + r.text, tools: r.tools, at: Date.now() }); trimChat(); save();
+      if (location.hash.indexOf('#/ask') === 0) { render(true); scrollEnd(); }
+    });
+  };
+  return { html: html, mount: function (el) {
+    var ta = el.querySelector('#askq');
+    function fit() { ta.style.height = 'auto'; ta.style.height = Math.min(140, ta.scrollHeight) + 'px'; }
+    ta.oninput = function () { T.draft = ta.value; fit(); };
+    ta.onkeydown = function (e) { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); A.send(); } };
+    fit();
+  } };
+}
+function trimChat() { if (S.chat.length > 60) S.chat = S.chat.slice(-60); }
+function scrollEnd() { setTimeout(function () { window.scrollTo(0, document.body.scrollHeight); }, 30); }
+function fab(where) {
+  var bottom = where === 'home' ? 'calc(var(--safe-bottom) + 158px)' : where === 'day' ? 'calc(var(--safe-bottom) + 132px)' : 'calc(var(--safe-bottom) + 84px)';
+  return '<a class="fab" href="#/ask" aria-label="파도에게 묻기" style="bottom:' + bottom + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 10.5c1.3-1.4 2.7-1.4 4 0s2.7 1.4 4 0"/></svg><span>묻기</span></a>';
+}
+
 /* ===================================================== 설정 */
 function viewSettings() {
   var html = '<main class="screen plain fade">' + topbar(backBtn('#/'), '설정');
   html += '<div class="card"><b>백업</b><p class="small muted">기록은 이 폰 안에만 저장돼요. 가끔 파일로 내보내 두면 폰을 바꿔도 이어갈 수 있어요.' + (S.lastBackup ? '<br>마지막 백업: ' + fShort(S.lastBackup) : '') + '</p>' +
     '<button class="btn primary" data-act="export">백업 파일 내보내기</button><label class="btn ghost" style="cursor:pointer">백업 불러오기<input type="file" accept="application/json,.json" id="imp" style="display:none"></label></div>';
+  var ac = aiConf();
+  html += '<div class="card"><b>AI 상담 봇</b><p class="small muted">키가 없으면 책 내용에 맞춘 기본 안내로 답해요. Claude API 키를 넣으면 내 기록까지 읽고 대화하는 AI로 바뀌어요. 키는 이 폰 안에만 저장되고, 백업 파일이나 GitHub에는 들어가지 않아요. 대화 한 번에 대략 10~20원 정도의 API 요금이 들어요.</p>' +
+    '<label class="field">Claude API 키<input class="input" type="password" id="aik" autocomplete="off" placeholder="sk-ant-…" value="' + esc(ac.key || '') + '"></label>' +
+    '<label class="field">모델' + '<select class="input" id="aim"><option value="claude-sonnet-5-5"' + (ac.model !== 'claude-haiku-5-5' ? ' selected' : '') + '>Sonnet 5.5 · 더 깊이 있는 대답</option><option value="claude-haiku-5-5"' + (ac.model === 'claude-haiku-5-5' ? ' selected' : '') + '>Haiku 5.5 · 더 빠르고 저렴</option></select></label>' +
+    '<div class="row"><button class="btn primary small" data-act="aisave">저장</button>' + (ac.key ? '<button class="btn ghost small" data-act="aidel">키 지우기</button>' : '') + '</div>' +
+    '<p class="xs muted">키는 platform.claude.com 콘솔의 API Keys에서 만들 수 있어요. 결제 수단 등록과 크레딧 충전이 필요해요.</p></div>';
   html += '<div class="card"><b>알림</b><p class="small muted">홈 화면 앱은 혼자서 정해진 시각에 알림을 보내기 어려워요. 아이폰 <b>미리 알림</b>이나 <b>시계</b> 앱에 매일 같은 시각 “파도 열기”를 반복으로 만들어두면 가장 확실해요.</p></div>';
   html += '<div class="card"><b>이 앱에 대해</b><p class="small muted">저드슨 브루어, 『식탐 해방』(푸른숲)의 21일 챌린지를 따라 하기 위한 개인용 앱이에요. 앱 안의 안내는 책을 짧게 요약한 것이니, 자세한 내용은 책의 해당 쪽을 함께 봐주세요.</p></div>';
   html += '<button class="linkbtn" data-act="reset" style="color:#9A4F36;font-weight:400">모든 기록 지우기</button></main>';
@@ -1051,6 +1177,8 @@ function viewSettings() {
       S.lastBackup = today(); save(); render(true);
     }
   };
+  A.aisave = function () { var k = document.getElementById('aik').value.trim(), m = document.getElementById('aim').value; aiSave({ key: k, model: m }); toast(k ? 'AI 상담 봇을 켰어요' : '저장했어요'); render(true); };
+  A.aidel = function () { aiSave({}); toast('키를 지웠어요. 기본 안내로 답해요'); render(true); };
   A.reset = function () { if (confirm('정말 모든 기록을 지울까요? 되돌릴 수 없어요.') && confirm('한 번 더 확인할게요. 지울까요?')) { localStorage.removeItem(KEY); S = fresh(); save(); go('#/'); } };
   return { html: html, mount: function (el) {
     el.querySelector('#imp').onchange = function (e) {
@@ -1083,6 +1211,7 @@ function render(keep) {
     case 'bank': v = viewBank(); break;
     case 'tools': v = viewTools(); break;
     case 'settings': v = viewSettings(); break;
+    case 'ask': v = viewAsk(); break;
     case 't':
       v = ({ hunger: viewHunger, loop: viewLoop, signal: viewSignal, checkin: viewCheckin, c1: viewC1, c2: viewC2, rain: viewRain, noting: viewNoting, plateau: viewPlateau }[p[1]] || viewTools)(r.q); break;
     case 'g': v = viewGuide(p[1]); break;
@@ -1090,6 +1219,8 @@ function render(keep) {
       v = ({ goal: viewGoal, story: viewStory, survey: function () { return viewSurvey(p[2]); }, retro: viewRetro, committee: viewCommittee, choice: viewChoice, enchant: viewEnchant, kind: viewKind, evidence: viewEvidence, review: viewReview }[p[1]] || viewTools)(); break;
     default: v = viewHome();
   }
+  var fw = { '': 'home', journey: 'tab', bank: 'tab', tools: 'tab', day: 'day' }[p[0]];
+  if (fw) v.html += fab(fw);
   app.innerHTML = v.html;
   if (!keep || routeChanged) {
     app.querySelectorAll('.fade').forEach(function (e) { e.classList.add('fade'); });
