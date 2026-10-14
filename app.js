@@ -1125,9 +1125,9 @@ render();
   el.innerHTML = '<img src="icons/icon-512.png" alt="">' + '<p class="q">' + esc(Q[i][0]) + '</p><span class="src">『식탐 해방』 · ' + esc(Q[i][1]) + '</span><span class="skip">눌러서 시작하기</span>';
   document.body.appendChild(el);
   var done = false;
-  function close() { if (done) return; done = true; el.classList.add('out'); setTimeout(function () { el.remove(); }, 550); }
+  function close() { if (done) return; done = true; el.classList.add('out'); setTimeout(function () { el.remove(); }, 900); }
   el.addEventListener('click', close);
-  setTimeout(close, 2800);
+  setTimeout(close, Math.min(8000, 4000 + Q[i][0].length * 60));
 })();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
