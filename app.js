@@ -1115,6 +1115,21 @@ document.addEventListener('visibilitychange', function () {
 });
 render();
 
+/* ---------- 시작 화면: 책 속 한 줄 ---------- */
+(function splash() {
+  var Q = P.quotes || []; if (!Q.length) return;
+  var last = -1; try { last = +(sessionStorage.getItem('pado.q') || -1); } catch (e) {}
+  var i = Math.floor(Math.random() * Q.length); if (Q.length > 1 && i === last) i = (i + 1) % Q.length;
+  try { sessionStorage.setItem('pado.q', i); } catch (e) {}
+  var el = document.createElement('div'); el.className = 'splash'; el.setAttribute('role', 'button'); el.setAttribute('aria-label', '시작 화면 닫기');
+  el.innerHTML = '<img src="icons/icon-512.png" alt="">' + '<p class="q">' + esc(Q[i][0]) + '</p><span class="src">『식탐 해방』 · ' + esc(Q[i][1]) + '</span><span class="skip">눌러서 시작하기</span>';
+  document.body.appendChild(el);
+  var done = false;
+  function close() { if (done) return; done = true; el.classList.add('out'); setTimeout(function () { el.remove(); }, 550); }
+  el.addEventListener('click', close);
+  setTimeout(close, 2800);
+})();
+
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(function () {});
 }
