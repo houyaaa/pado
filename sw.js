@@ -1,6 +1,6 @@
 // 파도 서비스 워커 — 오프라인에서도 열리게, 업데이트는 다음 실행 때 반영
-var CACHE = 'pado-v1';
-var SHELL = ['./', 'index.html', 'styles.css?v=1', 'data.js?v=1', 'app.js?v=1', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/apple-touch-icon.png'];
+var CACHE = 'pado-v2';
+var SHELL = ['./', 'index.html', 'styles.css?v=2', 'data.js?v=2', 'app.js?v=2', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));

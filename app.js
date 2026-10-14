@@ -123,28 +123,44 @@ function checkMark(state, num) {
 }
 
 /* ---------- 과제 완료 판정 ---------- */
-function countSpec(c) {
-  if (c.type === 'c1focus') return S.focusFood ? logsOf('c1', function (l) { return l.food === S.focusFood; }).length : 0;
-  return logsOf(c.type, function (l) { return !c.guide || l.guide === c.guide; }).length;
+function since(n) { return (S.days[n] && S.days[n].start) || 0; }
+function countSpec(c, n) {
+  var from = since(n);
+  if (c.type === 'c1focus') return S.focusFood ? logsOf('c1', function (l) { return l.food === S.focusFood && l.at >= from; }).length : 0;
+  return logsOf(c.type, function (l) { return (!c.guide || l.guide === c.guide) && l.at >= from; }).length;
 }
-function taskDone(t) {
+function taskDone(t, n) {
+  var from = since(n);
   switch (t.key) {
     case 'goal': return !!(S.goal && S.goal.items && S.goal.items.length);
     case 'story': return Object.keys(S.story).some(function (k) { return (S.story[k] || '').trim(); });
     case 'survey': return !!S.survey.pre;
     case 'focus': return !!S.focusFood;
-    case 'committee': return S.committee.length > 0;
-    case 'choice': return logsOf('choice').length > 0;
+    case 'committee': return S.committee.some(function (m) { return (m.at || 0) >= from; });
+    case 'choice': return logsOf('choice', function (l) { return l.at >= from; }).length > 0;
     case 'evidence': return !!(S.days[20] && S.days[20].seen);
-    case 'review': return logsOf('review').length > 0;
+    case 'review': return logsOf('review', function (l) { return l.at >= from; }).length > 0;
   }
-  return t.count ? countSpec(t.count) >= t.count.n : false;
+  return t.count ? countSpec(t.count, n) >= t.count.n : false;
 }
-function taskProgress(t) {
+function taskProgress(t, n) {
   if (!t.count) return '';
-  var k = countSpec(t.count);
+  var k = countSpec(t.count, n);
   if (t.key === 'c1food') return k + ' / 15번';
   return t.count.n > 1 ? Math.min(k, t.count.n) + ' / ' + t.count.n : (k ? k + '번 했어요' : '');
+}
+
+/* ---------- 자동 완료: 할 일을 다 하면 Day가 끝나요 ---------- */
+function autoComplete() {
+  var n = currentDay(); if (n > 21) return;
+  var dd = dayData(n);
+  if (!dd.start) { dd.start = Date.now(); save(); }
+  var req = P.days[n - 1].tasks.filter(function (x) { return !x.optional; });
+  if (req.every(function (x) { return taskDone(x, n); })) {
+    dd.done = true; dd.doneAt = today(); save();
+    if (n < 21) { dayData(n + 1).start = Date.now(); save(); }
+    setTimeout(function () { toast(n < 21 ? 'Day ' + n + ' 완료! 다음은 Day ' + (n + 1) + ' · ' + P.days[n].title : '21일을 모두 지나왔어요. 정말 수고했어요'); }, 60);
+  }
 }
 
 /* ---------- 바텀시트 ---------- */
@@ -158,25 +174,6 @@ function sheet(html, mount) {
 }
 function closeSheet() { var b = document.querySelector('.sheet-back'); if (b) b.remove(); }
 
-function planSheet(n, after) {
-  var d = dayData(n);
-  var t = today();
-  var opts = [[t, '오늘'], [addDays(t, 1), '내일'], [addDays(t, 2), '모레']];
-  sheet('<h2 class="h-m">Day ' + n + '은 언제 할까요?</h2>' +
-    '<p class="small muted">' + esc(P.days[n - 1].title) + ' · 날짜가 지나도 Day는 그대로 기다려요.</p>' +
-    '<div class="grid3">' + opts.map(function (o) { return '<button class="btn soft small" data-d="' + o[0] + '">' + o[1] + '<span class="xs muted" style="font-weight:400">' + fShort(o[0]).split(' ')[0] + '</span></button>'; }).join('') + '</div>' +
-    '<label class="field">직접 고르기<input class="input" type="date" id="pd" value="' + (d.plan || '') + '" min="' + t + '"></label>' +
-    '<button class="btn primary" id="pok">이 날짜로 정하기</button>' +
-    (d.plan ? '<button class="textbtn" id="pclr">날짜 지우기</button>' : '<button class="textbtn" id="plater">나중에 정할게요</button>'),
-    function (el) {
-      function setP(v) { d.plan = v || null; save(); closeSheet(); if (v) toast('Day ' + n + ', ' + fMD(v) + '에 만나요'); if (after) after(); else render(true); }
-      el.querySelectorAll('[data-d]').forEach(function (b) { b.onclick = function () { setP(b.getAttribute('data-d')); }; });
-      el.querySelector('#pok').onclick = function () { var v = el.querySelector('#pd').value; if (!v) { toast('날짜를 골라주세요'); return; } setP(v); };
-      var c = el.querySelector('#pclr'); if (c) c.onclick = function () { setP(null); };
-      var l = el.querySelector('#plater'); if (l) l.onclick = function () { closeSheet(); if (after) after(); };
-    });
-}
-
 /* ---------- 상태(화면별 임시) ---------- */
 var T = {};
 var A = {};
@@ -189,7 +186,7 @@ function viewHome() {
   var d = P.days[n - 1], dd = dayData(n), t = today();
   var due = S.followups.filter(function (f) { return f.due <= Date.now(); });
   var tasks = d.tasks.filter(function (x) { return !x.optional; });
-  var doneCount = tasks.filter(taskDone).length;
+  var doneCount = tasks.filter(function (x) { return taskDone(x, n); }).length;
   var html = '<main class="screen fade">';
   html += '<div class="between"><div class="brand"><img src="icons/icon-192.png" alt="">파도</div><a class="iconbtn" href="#/settings" aria-label="설정">' + I.gear + '</a></div>';
 
@@ -224,24 +221,17 @@ function viewHome() {
     '<div class="stack" style="gap:6px"><h2 class="h-m">' + esc(d.title) + '</h2><p class="lead" style="font-size:14px">' + esc(d.why) + '</p></div><div class="stack">';
   var firstTodo = true;
   d.tasks.forEach(function (x, k) {
-    var ok = taskDone(x);
+    var ok = taskDone(x, n);
     var st = ok ? 'done' : (firstTodo ? 'todo' : 'idle'); if (!ok) firstTodo = false;
-    html += '<a class="task' + (ok ? ' done' : '') + '" href="' + x.route + '">' + checkMark(st, k + 1) + '<span class="grow"><span class="t">' + esc(x.label) + '</span>' + (taskProgress(x) ? '<br><span class="d">' + taskProgress(x) + '</span>' : '') + '</span>' + (ok ? '' : '<span style="width:18px;height:18px;display:flex;color:var(--sea)">' + I.next + '</span>') + '</a>';
+    html += '<a class="task' + (ok ? ' done' : '') + '" href="' + x.route + '">' + checkMark(st, k + 1) + '<span class="grow"><span class="t">' + esc(x.label) + (x.optional ? ' <span class="pill">선택</span>' : '') + '</span>' + (taskProgress(x, n) ? '<br><span class="d">' + taskProgress(x, n) + '</span>' : '') + '</span>' + (ok ? '' : '<span style="width:18px;height:18px;display:flex;color:var(--sea)">' + I.next + '</span>') + '</a>';
   });
-  html += '</div><a class="btn primary" href="#/day/' + n + '">' + (doneCount === tasks.length ? 'Day ' + n + ' 마무리하기' : (doneCount || dd.opened ? '이어서 하기' : '시작하기')) + '</a></div>';
+  html += '</div><a class="btn primary" href="#/day/' + n + '">' + (doneCount || dd.opened ? '이어서 하기' : '시작하기') + '</a></div>';
 
-  var plan = dd.plan, line;
-  if (plan === t) line = '<b style="font-weight:600">오늘</b> <span class="muted">Day ' + n + ' 하기로 한 날이에요</span>';
-  else if (plan && plan > t) line = '<span class="muted">Day ' + n + '</span> <b style="font-weight:600">' + fMD(plan) + '</b><span class="muted">에 하기로 했어요</span>';
-  else if (plan) line = '<span class="muted">' + fMD(plan) + '에 하기로 했었죠. 괜찮아요,</span> <b style="font-weight:600">새 날짜를 정해요</b>';
-  else line = '<span class="muted">Day ' + n + ', 언제 할까요?</span>';
-  html += '<button class="row" data-act="plan" data-arg="' + n + '" style="border:0;background:transparent;padding:2px 4px;text-align:left;font-size:13px;color:var(--ink)"><span style="width:18px;height:18px;display:flex">' + I.cal + '</span><span class="grow">' + line + '</span><span style="color:var(--sea);font-weight:600">' + (plan ? '바꾸기' : '날짜 정하기') + '</span></button>';
-
+  html += '<p class="xs muted" style="text-align:center;margin-top:-6px">할 일을 다 하면 Day ' + n + '이 자동으로 완료돼요</p>';
   html += '<p class="xs muted" style="text-align:center">지금까지 쌓인 기록 <b style="color:var(--ink)">' + S.logs.length + '개</b> · 쌓이기만 해요</p>';
   html += '</main>';
 
   A.hideGap = function () { T.hideGap = true; GAP = 0; };
-  A.plan = function (a) { planSheet(+a); };
   A.follow = function (a) {
     var p = a.split('|'), f = S.followups.filter(function (x) { return x.id === p[0]; })[0];
     if (f && p[1]) { var l = S.logs.filter(function (x) { return x.id === f.ref; })[0]; if (l) { l.after = p[1]; } }
@@ -283,12 +273,12 @@ function viewDay(n) {
   html += '<div class="stack"><span class="small" style="font-weight:600">앱에서 할 일</span><div class="timeline">';
   var firstTodo = true;
   d.tasks.forEach(function (x, k) {
-    var ok = taskDone(x), st = ok ? 'done' : (firstTodo ? 'todo' : 'idle'); if (!ok) firstTodo = false;
+    var ok = taskDone(x, n), st = ok ? 'done' : (firstTodo ? 'todo' : 'idle'); if (!ok) firstTodo = false;
     var last = k === d.tasks.length - 1;
     html += '<div class="tl' + (ok ? ' done' : '') + '"><div class="rail">' + checkMark(st, k + 1) + (last ? '' : '<i></i>') + '</div><div class="body">' +
       (st === 'todo'
-        ? '<div class="card tight" style="gap:10px"><b>' + esc(x.label) + (x.optional ? ' <span class="pill">선택</span>' : '') + '</b>' + (taskProgress(x) ? '<span class="xs muted">' + taskProgress(x) + '</span>' : '') + '<a class="btn primary small" href="' + x.route + '">지금 하기</a></div>'
-        : '<a href="' + x.route + '" style="text-decoration:none;color:inherit"><b style="' + (ok ? 'color:var(--mute)' : '') + '">' + esc(x.label) + (x.optional ? ' <span class="pill">선택</span>' : '') + '</b><br><span class="xs muted">' + (ok ? '완료 · 다시 하기' : (taskProgress(x) || '다음')) + '</span></a>') +
+        ? '<div class="card tight" style="gap:10px"><b>' + esc(x.label) + (x.optional ? ' <span class="pill">선택</span>' : '') + '</b>' + (taskProgress(x, n) ? '<span class="xs muted">' + taskProgress(x, n) + '</span>' : '') + '<a class="btn primary small" href="' + x.route + '">지금 하기</a></div>'
+        : '<a href="' + x.route + '" style="text-decoration:none;color:inherit"><b style="' + (ok ? 'color:var(--mute)' : '') + '">' + esc(x.label) + (x.optional ? ' <span class="pill">선택</span>' : '') + '</b><br><span class="xs muted">' + (ok ? '완료 · 다시 하기' : (taskProgress(x, n) || '다음')) + '</span></a>') +
       '</div></div>';
   });
   html += '</div></div>';
@@ -297,27 +287,18 @@ function viewDay(n) {
 
   if (dd.done) {
     html += '<div class="card tight"><label class="field">완료한 날<input class="input" type="date" id="doneAt" value="' + (dd.doneAt || '') + '" max="' + t + '"></label><span class="xs muted">종이로 먼저 했던 날이라면 날짜를 고쳐도 돼요.</span></div>';
-  } else {
-    html += '<button class="card tight" data-act="plan" data-arg="' + n + '" style="border:0;text-align:left;flex-direction:row;align-items:center"><span style="width:20px;height:20px;display:flex">' + I.cal + '</span><span class="grow small">' +
-      (dd.plan ? (dd.plan === t ? '<b>오늘</b> 하기로 한 날이에요' : '<b>' + fMD(dd.plan) + '</b>' + (dd.plan < t ? '에 하기로 했었죠' : '에 하기로 했어요')) : '언제 할지 정해볼까요?') + '</span><span class="small" style="color:var(--sea);font-weight:600">' + (dd.plan ? '바꾸기' : '날짜 정하기') + '</span></button>';
   }
   html += '</main>';
 
-  var allDone = d.tasks.filter(function (x) { return !x.optional; }).every(taskDone);
-  if (dd.done) html += foot('<a class="btn primary" href="#/">오늘로 돌아가기</a><button class="linkbtn" data-act="undo" style="font-weight:400;font-size:13px;color:var(--mute)">완료 취소</button>');
-  else html += foot('<button class="btn ' + (allDone ? 'primary' : 'dark') + '" data-act="complete">' + (allDone ? 'Day ' + n + ' 완료!' : '아직 다 못 했지만 완료할래요') + '</button>' +
-    '<button class="linkbtn" data-act="stay">오늘은 Day ' + n + '에 하루 더 머물래요</button>');
+  if (dd.done) html += foot('<a class="btn primary" href="#/">오늘로 돌아가기</a>');
+  else if (n === currentDay()) html += foot('<p class="small muted" style="text-align:center">할 일을 다 하면 Day ' + n + '이 자동으로 완료돼요</p><button class="linkbtn" data-act="skip" style="font-weight:400;font-size:13px;color:var(--mute)">다 못 했지만 다음 Day로 넘어갈래요</button>');
+  else html += foot('<p class="small muted" style="text-align:center">Day ' + currentDay() + '을 먼저 마치면 열려요. 미리 읽어봐도 괜찮아요.</p>');
 
-  A.plan = function (a) { planSheet(+a); };
-  A.complete = function () {
-    dd.done = true; dd.doneAt = t; save();
-    if (n < 21) {
-      toast('Day ' + n + ' 완료! 잘했어요');
-      planSheet(n + 1, function () { go('#/'); });
-    } else { toast('21일을 모두 지나왔어요'); go('#/f/review'); }
+  A.skip = function () {
+    if (!confirm('Day ' + n + '을 완료로 표시하고 다음 Day로 넘어갈까요?')) return;
+    dd.done = true; dd.doneAt = t; if (n < 21) dayData(n + 1).start = Date.now(); save();
+    toast(n < 21 ? 'Day ' + (n + 1) + '로 넘어왔어요' : '21일을 모두 지나왔어요'); go(n < 21 ? '#/' : '#/f/review');
   };
-  A.stay = function () { dd.plan = addDays(t, 1); save(); toast('좋아요. 내일 Day ' + n + '에서 이어서 해요'); go('#/'); };
-  A.undo = function () { dd.done = false; dd.doneAt = null; save(); render(true); };
   return { html: html, mount: function (el) {
     var i = el.querySelector('#doneAt'); if (i) i.onchange = function () { if (i.value) { dd.doneAt = i.value; save(); toast('완료 날짜를 고쳤어요'); } };
     mountCheckinTimes(el);
@@ -356,16 +337,15 @@ function viewJourney() {
   if (!T.month) T.month = t.slice(0, 7);
   var ym = T.month.split('-'), y = +ym[0], m = +ym[1];
   var first = new Date(y, m - 1, 1), days = new Date(y, m, 0).getDate();
-  var doneMap = {}, planMap = {}, logDates = {};
+  var doneMap = {}, logDates = {};
   for (var n = 1; n <= 21; n++) {
     var dd = S.days[n]; if (!dd) continue;
     if (dd.done && dd.doneAt) (doneMap[dd.doneAt] = doneMap[dd.doneAt] || []).push('D' + n);
-    else if (dd.plan) (planMap[dd.plan] = planMap[dd.plan] || []).push('D' + n);
   }
   S.logs.forEach(function (l) { logDates[l.date] = 1; });
 
   var html = '<main class="screen fade">';
-  html += '<div class="stack" style="gap:6px"><h1 class="h-xl">21일 여정</h1><p class="small muted" style="line-height:1.6">한 날짜는 자동으로 남고, 다음 Day는 내가 날짜를 정해요. 날짜가 지나도 Day는 그대로 기다려요.</p></div>';
+  html += '<div class="stack" style="gap:6px"><h1 class="h-xl">21일 여정</h1><p class="small muted" style="line-height:1.6">할 일을 다 하면 Day가 자동으로 완료되고, 그날이 달력에 남아요. 쉬어간 날이 있어도 Day는 그대로 기다려요.</p></div>';
 
   html += '<div class="card"><div class="between"><button class="iconbtn" data-act="mon" data-arg="-1" aria-label="이전 달">' + I.back + '</button><span style="font-family:var(--serif);font-weight:600;font-size:17px">' + y + '년 ' + m + '월</span><button class="iconbtn" data-act="mon" data-arg="1" aria-label="다음 달">' + I.next + '</button></div><div class="cal">';
   WD.forEach(function (w) { html += '<span class="wd">' + w + '</span>'; });
@@ -373,12 +353,11 @@ function viewJourney() {
   for (var dI = 1; dI <= days; dI++) {
     var key = y + '-' + pad(m) + '-' + pad(dI), cls = '', tag = '';
     if (doneMap[key]) { cls = 'done'; tag = doneMap[key].join(' '); }
-    else if (key === t) { cls = 'today'; tag = planMap[key] ? planMap[key].join(' ') : '오늘'; }
-    else if (planMap[key]) { cls = 'plan'; tag = planMap[key].join(' '); }
-    else if (logDates[key]) { cls = 'rec'; tag = '기록'; }
+    else if (logDates[key]) { cls = 'rec' + (key === t ? ' today' : ''); tag = key === t ? '오늘' : '기록'; }
+    else if (key === t) { cls = 'today'; tag = '오늘'; }
     html += '<div class="c"><span class="n ' + cls + '">' + dI + '</span><span class="tag">' + tag + '</span></div>';
   }
-  html += '</div><div class="legend"><span><i style="background:var(--sea)"></i>Day를 끝낸 날</span><span><i style="border:2px dashed var(--sea);box-sizing:border-box"></i>계획한 날</span><span><i style="background:var(--kelp)"></i>기록만 한 날</span></div></div>';
+  html += '</div><div class="legend"><span><i style="background:var(--sea)"></i>Day를 끝낸 날</span><span><i style="background:var(--kelp)"></i>기록만 한 날</span></div></div>';
 
   html += '<div class="card"><span class="small" style="font-weight:600">지금까지 쌓은 경험</span><div class="grid3">' + evidenceStats().slice(0, 6).map(function (s) {
     return '<a class="stat" href="' + s.href + '"><b>' + s.n + '</b><span>' + s.label + '</span></a>';
@@ -389,20 +368,15 @@ function viewJourney() {
     html += '<div class="stack" style="gap:4px"><div class="between" style="padding-bottom:6px"><span style="font-family:var(--serif);font-weight:600;font-size:17px">' + P.steps[st].name + '</span><span class="xs muted">' + P.steps[st].range + '</span></div>';
     P.days.filter(function (d) { return d.step === st; }).forEach(function (d) {
       var dd = S.days[d.n] || {}, done = dd.done, now = d.n === cur;
-      var chip, cc;
-      if (done) { chip = fShort(dd.doneAt); cc = 'done'; }
-      else if (dd.plan) { chip = dd.plan === t ? '오늘' : fShort(dd.plan); cc = dd.plan < t ? 'late' : 'plan'; }
-      else { chip = '날짜 정하기'; cc = ''; }
       var sub = done ? '완료' : (now ? '지금 여기' : '');
       if (d.n === 19) sub = (sub ? sub + ' · ' : '') + '+ 다섯 손가락 호흡법';
       html += '<div class="dayrow' + (now ? ' now' : '') + '"><a href="#/day/' + d.n + '" class="row grow" style="text-decoration:none;color:inherit"><span class="daynum ' + (done ? 'done' : (now ? 'now' : '')) + '">' + d.n + '</span><span class="grow"><span style="font-size:15px;font-weight:' + (now ? 600 : 500) + ';color:' + (d.n > cur ? 'var(--mute)' : 'var(--ink)') + '">' + esc(d.title) + '</span><br><span class="xs muted">' + (sub ? sub + ' · ' : '') + d.page + '쪽</span></span></a>' +
-        (done ? '<span class="datechip done">' + chip + '</span>' : '<button class="datechip ' + cc + '" data-act="plan" data-arg="' + d.n + '" style="background:transparent">' + chip + '</button>') + '</div>';
+        (done ? '<span class="datechip done">' + fShort(dd.doneAt) + '</span>' : '') + '</div>';
     });
     html += '</div>';
   });
   html += '</main>';
   A.mon = function (a) { var d = new Date(y, m - 1 + (+a), 1); T.month = d.getFullYear() + '-' + pad(d.getMonth() + 1); render(true); };
-  A.plan = function (a) { planSheet(+a); };
   return { html: html + tabbar('journey') };
 }
 function evidenceStats() {
@@ -975,7 +949,7 @@ function memberSheet(kind) {
     el.querySelectorAll('[data-h]').forEach(function (b) { b.onclick = function () { st.helpful = b.getAttribute('data-h') === '1'; st.name = el.querySelector('#mn').value; st.says = el.querySelector('#ms').value; draw(el); el.querySelector('#ms').value = st.says || ''; }; });
     el.querySelector('#mok').onclick = function () {
       var name = el.querySelector('#mn').value.trim(); if (!name) { toast('이름을 붙여주세요'); return; }
-      S.committee.push({ id: uid(), name: name, says: el.querySelector('#ms').value.trim(), helpful: st.helpful, kind: kind, count: 0 }); save(); closeSheet(); render(true);
+      S.committee.push({ id: uid(), at: Date.now(), name: name, says: el.querySelector('#ms').value.trim(), helpful: st.helpful, kind: kind, count: 0 }); save(); closeSheet(); render(true);
     };
   }
   sheet('', draw);
@@ -1097,6 +1071,7 @@ function parse() {
   return { parts: h.replace(/^#\/?/, '').split('/'), q: q, key: h };
 }
 function render(keep) {
+  autoComplete();
   var r = parse(), p = r.parts, v;
   if (r.key !== lastRoute) { T = (T.tab || T.food) && (p[0] === 'bank') ? { tab: T.tab, food: T.food } : {}; A = {}; stopSpeak(); }
   var routeChanged = r.key !== lastRoute; lastRoute = r.key;
