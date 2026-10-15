@@ -166,6 +166,76 @@ function autoComplete() {
   }
 }
 
+/* ---------- 내 목표 카드 (흔들릴 때 보여주기) ---------- */
+function goalCard(lead, compact) {
+  if (!(S.goal && S.goal.items && S.goal.items.length)) return '';
+  return '<a class="card kelp tight" href="#/f/goal" style="text-decoration:none;color:inherit">' + (lead ? '<span class="xs muted">' + lead + '</span>' : '<span class="xs muted">Day 1에 정한 내 목표</span>') +
+    '<b style="font-family:var(--serif);font-size:18px;font-weight:600">' + esc(S.goal.items.join(' · ')) + '</b>' +
+    (S.goal.why && !compact ? '<span class="small" style="color:var(--body)">' + nl(S.goal.why) + '</span>' : '') + '</a>';
+}
+function goalLine() {
+  if (!(S.goal && S.goal.items && S.goal.items.length)) return '';
+  return '\n\n기억해요, 내 목표는 “' + S.goal.items.join(' · ') + '”' + (S.goal.why ? '이고, 이유는 “' + S.goal.why.replace(/\s+/g, ' ').slice(0, 80) + '”' : '') + '예요.';
+}
+
+/* ---------- Day별로 쓴 기록 ---------- */
+function dayTypes(n) {
+  var out = [];
+  P.days[n - 1].tasks.forEach(function (t) {
+    if (t.count) out.push({ type: t.count.type === 'c1focus' ? 'c1' : t.count.type, guide: t.count.guide });
+    else if (t.key === 'choice' || t.key === 'review') out.push({ type: t.key });
+  });
+  return out;
+}
+function dayLogs(n) {
+  var from = since(n), to = (S.days[n + 1] && S.days[n + 1].start) || Infinity, ty = dayTypes(n);
+  if (!from) return [];
+  return S.logs.filter(function (l) {
+    return l.at >= from && l.at < to && ty.some(function (x) { return x.type === l.type && (!x.guide || x.guide === l.guide); });
+  });
+}
+var EDIT = {
+  loop: [['trigger', '계기'], ['action', '행동'], ['result', '결과']],
+  signal: [['signal', '신호'], ['action', '내가 한 행동'], ['feel', '그 뒤 몸의 느낌', 1]],
+  checkin: [['focus', '하는 일에'], ['where', '주의는'], ['mood', '기분']],
+  c1: [['food', '음식'], ['amount', '먹은 양'], ['gain', '얻은 것', 1]],
+  c2: [['food', '음식'], ['amount', '상상 속 먹은 양']],
+  plateau: [['food', '음식'], ['note', '멈춘 순간의 느낌', 1], ['after', '15분 뒤 포만감']],
+  noting: [['routine', '일과'], ['feel', '현재에 있을 때 기분']],
+  retro: [['food', '무엇을 얼마나'], ['body', '몸', 1], ['after', '먹은 뒤 기분', 1], ['mind', '생각과 감정', 1], ['later', '20분 뒤', 1], ['got', '얻은 것', 1]],
+  choice: [['easy', '쉽게 바뀐 습관'], ['easyWhy', '그건'], ['hard', '힘들었던 습관'], ['hardWhy', '그건'], ['note', '알게 된 것', 1]],
+  enchant: [['food', '음식'], ['note', '먹는 동안', 1], ['after', '나중 기분']],
+  kind: [['note', '어떤 친절이었나요', 1]],
+  guide: [['notes', '알아차린 것 (한 줄에 하나씩)', 1]],
+  hunger: [['result', '결과']],
+  rain: []
+};
+function editLog(id) {
+  var l = S.logs.filter(function (x) { return x.id === id; })[0]; if (!l) return;
+  var F = EDIT[l.type] || [];
+  var d = new Date(l.at);
+  var html = '<h2 class="h-m">' + esc(typeName(l)) + ' 고치기</h2>' +
+    '<label class="field">날짜<input class="input" type="date" id="e_date" value="' + ymd(d) + '" max="' + today() + '"></label>' +
+    F.map(function (f) {
+      var v = l[f[0]]; if (Array.isArray(v)) v = v.join('\n');
+      return '<label class="field">' + f[1] + (f[2] ? '<textarea class="input" id="e_' + f[0] + '" style="min-height:80px">' + esc(v || '') + '</textarea>' : '<input class="input" id="e_' + f[0] + '" value="' + esc(v || '') + '">') + '</label>';
+    }).join('') +
+    (l.type === 'c1' ? '<p class="xs muted">점수(몸 ' + signed(l.body) + ' · 기분 ' + signed(l.mood) + ' · 생각 ' + signed(l.think) + ' = ' + signed(l.total) + ')는 그대로 둬요.</p>' : '') +
+    '<button class="btn primary" id="e_ok">저장</button><button class="textbtn" id="e_del" style="color:#9A4F36">이 기록 지우기</button>';
+  sheet(html, function (el) {
+    el.querySelector('#e_ok').onclick = function () {
+      F.forEach(function (f) { var v = el.querySelector('#e_' + f[0]).value; l[f[0]] = Array.isArray(l[f[0]]) || f[0] === 'notes' ? v.split('\n').map(function (x) { return x.trim(); }).filter(Boolean) : v.trim(); });
+      var nd = el.querySelector('#e_date').value;
+      if (nd && nd !== ymd(d)) { var p = nd.split('-'); var nt = new Date(+p[0], +p[1] - 1, +p[2], d.getHours(), d.getMinutes()); l.at = nt.getTime(); l.date = nd; }
+      save(); closeSheet(); toast('고쳤어요'); render(true);
+    };
+    el.querySelector('#e_del').onclick = function () { if (!confirm('이 기록을 지울까요?')) return; S.logs = S.logs.filter(function (x) { return x.id !== id; }); save(); closeSheet(); render(true); };
+  });
+}
+function logRow(l) {
+  return '<button class="record" data-act="editlog" data-arg="' + l.id + '" style="border:0;text-align:left;width:100%"><span class="grow"><b class="small">' + esc(typeName(l)) + '</b><br><span class="small" style="color:var(--body)">' + esc(summaryOf(l) || '') + '</span><br><span class="xs muted">' + timeOf(l.at) + '</span></span><span class="xs" style="color:var(--sea);font-weight:600;align-self:center">고치기</span></button>';
+}
+
 /* ---------- 바텀시트 ---------- */
 function sheet(html, mount) {
   closeSheet();
@@ -197,7 +267,7 @@ function viewHome() {
     var prev = n > 1 ? n - 1 : null;
     html += '<div class="card kelp tight"><p class="small"><b>' + GAP + '일 만이에요. 다시 와줘서 반가워요.</b> 쉬어간 날은 실패가 아니에요.</p>' +
       '<div class="row"><button class="btn dark small" data-act="hideGap">Day ' + n + ' 이어서</button>' +
-      (prev ? '<a class="btn ghost small" href="#/day/' + prev + '" data-act="hideGap">Day ' + prev + ' 다시 보기</a>' : '') + '</div></div>';
+      (prev ? '<a class="btn ghost small" href="#/day/' + prev + '" data-act="hideGap">Day ' + prev + ' 다시 보기</a>' : '') + '</div></div>' + goalCard('다시 시작하는 이유');
   }
 
   due.forEach(function (f) {
@@ -272,10 +342,13 @@ function viewDay(n) {
     html += '<div class="tl' + (ok ? ' done' : '') + '"><div class="rail">' + checkMark(st, k + 1) + (last ? '' : '<i></i>') + '</div><div class="body">' +
       (st === 'todo'
         ? '<div class="card tight" style="gap:10px"><b>' + esc(x.label) + (x.optional ? ' <span class="pill">선택</span>' : '') + '</b>' + (taskProgress(x, n) ? '<span class="xs muted">' + taskProgress(x, n) + '</span>' : '') + '<a class="btn primary small" href="' + x.route + '">지금 하기</a></div>'
-        : '<a href="' + x.route + '" style="text-decoration:none;color:inherit"><b style="' + (ok ? 'color:var(--mute)' : '') + '">' + esc(x.label) + (x.optional ? ' <span class="pill">선택</span>' : '') + '</b><br><span class="xs muted">' + (ok ? '완료 · 다시 하기' : (taskProgress(x, n) || '다음')) + '</span></a>') +
+        : '<a href="' + x.route + '" style="text-decoration:none;color:inherit"><b style="' + (ok ? 'color:var(--mute)' : '') + '">' + esc(x.label) + (x.optional ? ' <span class="pill">선택</span>' : '') + '</b><br><span class="xs muted">' + (ok ? (x.count ? '완료 · 한 번 더 하기' : '완료 · 보기와 고치기') : (taskProgress(x, n) || '다음')) + '</span></a>') +
       '</div></div>';
   });
   html += '</div></div>';
+  var mine = dayLogs(n);
+  if (mine.length) html += '<div class="stack"><span class="small" style="font-weight:600">Day ' + n + '에서 쓴 기록 <span class="muted" style="font-weight:400">· 눌러서 고치기</span></span>' + mine.slice().reverse().map(logRow).join('') + '</div>';
+  if (n === 1 && S.goal) html += goalCard();
   if (d.tips) html += '<div class="card outline tight"><b class="small">알아두면 편해요</b><span class="small" style="color:var(--body)">' + esc(d.tips) + '</span></div>';
   if (n === 6) html += checkinTimesCard();
 
@@ -288,6 +361,7 @@ function viewDay(n) {
   else if (n === currentDay()) html += foot('<p class="small muted" style="text-align:center">할 일을 다 하면 Day ' + n + '이 자동으로 완료돼요</p><button class="linkbtn" data-act="skip" style="font-weight:400;font-size:13px;color:var(--mute)">다 못 했지만 다음 Day로 넘어갈래요</button>');
   else html += foot('<p class="small muted" style="text-align:center">Day ' + currentDay() + '을 먼저 마치면 열려요. 미리 읽어봐도 괜찮아요.</p>');
 
+  A.editlog = function (a) { editLog(a); };
   A.skip = function () {
     if (!confirm('Day ' + n + '을 완료로 표시하고 다음 Day로 넘어갈까요?')) return;
     dd.done = true; dd.doneAt = t; if (n < 21) dayData(n + 1).start = Date.now(); save();
@@ -427,12 +501,13 @@ function viewBank() {
     html += '<a class="btn primary" href="#/f/enchant">매혹 기록 남기기</a>';
   } else {
     html += S.logs.length ? S.logs.slice().reverse().slice(0, 80).map(function (l) {
-      return '<div class="record"><span class="grow"><b class="small">' + typeName(l) + '</b><br><span class="small" style="color:var(--body)">' + esc(summaryOf(l)) + '</span><br><span class="xs muted">' + timeOf(l.at) + '</span></span><button class="iconbtn" data-act="del" data-arg="' + l.id + '" aria-label="기록 삭제" style="width:36px;height:36px;color:var(--mute)">' + I.trash + '</button></div>';
+      return logRow(l);
     }).join('') : '<div class="empty">아직 기록이 없어요</div>';
   }
   html += '</main>';
   A.tab = function (a) { T.tab = a; render(true); };
   A.food = function (a) { T.food = a; render(true); };
+  A.editlog = function (a) { editLog(a); };
   A.focus = function () { S.focusFood = T.food; save(); toast('이 음식에 집중해요. 15번을 목표로'); render(true); };
   A.newfood = function () {
     sheet('<h2 class="h-m">어떤 음식이 고민인가요?</h2><p class="small muted">특히 자꾸 손이 가는 음식이나 과식 행동 하나.</p><input class="input" id="nf" placeholder="예: 편의점 과자"><button class="btn primary" id="nfok">추가하고 집중하기</button>', function (el) {
@@ -440,6 +515,7 @@ function viewBank() {
       el.querySelector('#nf').focus();
     });
   };
+  A.editlog = function (a) { editLog(a); };
   A.del = function (a) { if (!confirm('이 기록을 지울까요?')) return; S.logs = S.logs.filter(function (l) { return l.id !== a; }); save(); render(true); };
   return { html: html + tabbar('bank') };
 }
@@ -464,6 +540,9 @@ function chartMsg(c1) {
   return '큰 변화는 아직이에요. 10–15번쯤 모이면 달라지기 시작해요.';
 }
 function recordCard(l) {
+  return '<button data-act="editlog" data-arg="' + l.id + '" style="border:0;background:transparent;padding:0;text-align:left;width:100%">' + recordCardInner(l) + '</button>';
+}
+function recordCardInner(l) {
   var score = l.type === 'c1' ? signed(l.total) : (l.type === 'c2' ? '상상' : '돌아봄');
   var q = l.gain || l.got || l.note || '';
   return '<div class="record"><span class="score" style="' + (l.type !== 'c1' ? 'font-size:13px;color:var(--mute)' : '') + '">' + score + '</span><span class="grow quote">' + (q ? '“' + esc(q) + '”<br>' : '') + '<span class="xs muted">' + timeOf(l.at) + (l.amount ? ' · ' + esc(l.amount) : '') + (l.urge != null ? ' · 충동 ' + signed(l.urge) : '') + '</span></span></div>';
@@ -528,6 +607,7 @@ function viewHunger() {
   }[key];
   var html = '<main class="screen has-foot fade">' + topbar(closeBtn('#/'), '<span class="sub">허기 테스트 · 책 136쪽</span>');
   html += '<div class="stack" style="gap:6px"><h1 class="h-l">잠깐, 지금 어떤지<br>먼저 살펴봐요</h1><p class="small muted">해당하는 걸 모두 눌러요. 정답은 없어요.</p></div>';
+  html += goalCard('잊지 않게, 내가 정한 목표', true);
   html += '<div class="wrap">' + P.hungerItems.map(function (it, k) { return '<button class="chip' + (T.sel[k] ? ' on' : '') + '" data-act="tg" data-arg="' + k + '" aria-pressed="' + !!T.sel[k] + '">' + it[0] + '</button>'; }).join('') + '</div>';
   html += '<div class="card"><div class="stack">' + [['스트레스·감정', c.E, 'var(--emo)'], ['습관', c.H, 'var(--habit)'], ['허기', c.F, 'var(--hunger)']].map(function (r) {
     return '<div class="row small"><span style="width:92px;flex-shrink:0">' + r[0] + '</span><span class="bar"><i style="width:' + Math.round(r[1] / max * 100) + '%;background:' + r[2] + '"></i></span><b style="width:16px;text-align:right">' + r[1] + '</b></div>';
@@ -922,12 +1002,21 @@ function viewCommittee() {
   html += S.committee.length ? S.committee.map(function (m) {
     return '<div class="card tight" style="' + (m.kind ? 'background:var(--kelp)' : '') + '"><div class="between"><b style="font-family:var(--serif);font-size:18px">' + esc(m.name) + '</b><span class="pill" style="' + (m.helpful ? '' : 'background:#F3E3DC;color:#9A4F36') + '">' + (m.helpful ? '유용함' : '해로움') + '</span></div>' +
       (m.says ? '<span class="small" style="color:var(--body)">“' + esc(m.says) + '”</span>' : '') +
-      '<div class="between"><span class="xs muted">' + (m.count || 0) + '번 알아차림</span><div class="row"><button class="iconbtn" data-act="cdel" data-arg="' + m.id + '" aria-label="삭제" style="width:36px;height:36px;color:var(--mute)">' + I.trash + '</button><button class="btn primary small" data-act="cplus" data-arg="' + m.id + '" style="width:auto">들렸어요 +1</button></div></div></div>';
+      '<div class="between"><span class="xs muted">' + (m.count || 0) + '번 알아차림</span><div class="row"><button class="textbtn" data-act="cedit" data-arg="' + m.id + '">고치기</button><button class="iconbtn" data-act="cdel" data-arg="' + m.id + '" aria-label="삭제" style="width:36px;height:36px;color:var(--mute)">' + I.trash + '</button><button class="btn primary small" data-act="cplus" data-arg="' + m.id + '" style="width:auto">들렸어요 +1</button></div></div></div>';
   }).join('') : '<div class="empty">아직 위원이 없어요. 조용히 숨을 고르고, 내면의 목소리에 귀 기울여봐요.</div>';
   html += '</main>' + foot('<button class="btn primary" data-act="cnew">+ 위원 추가</button><button class="linkbtn" data-act="ckind" style="font-weight:400">친절한 목소리 추가하기 (Day 19)</button>');
   A.cplus = function (a) { S.committee.forEach(function (m) { if (m.id === a) m.count = (m.count || 0) + 1; }); save(); render(true); };
   A.cdel = function (a) { if (!confirm('이 위원을 해고할까요?')) return; S.committee = S.committee.filter(function (m) { return m.id !== a; }); save(); render(true); };
   A.cnew = function () { memberSheet(false); };
+  A.cedit = function (a) {
+    var m = S.committee.filter(function (x) { return x.id === a; })[0]; if (!m) return;
+    sheet('<h2 class="h-m">위원 고치기</h2><label class="field">이름<input class="input" id="cn" value="' + esc(m.name) + '"></label><label class="field">자주 하는 말<input class="input" id="cs" value="' + esc(m.says || '') + '"></label>' +
+      '<div class="seg" style="grid-template-columns:repeat(2,minmax(0,1fr))"><button data-h="0" class="' + (!m.helpful ? 'on' : '') + '">해로움</button><button data-h="1" class="' + (m.helpful ? 'on' : '') + '">유용함</button></div><button class="btn primary" id="cok">저장</button>', function (el) {
+      var h = m.helpful;
+      el.querySelectorAll('[data-h]').forEach(function (b) { b.onclick = function () { h = b.getAttribute('data-h') === '1'; el.querySelectorAll('[data-h]').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
+      el.querySelector('#cok').onclick = function () { var nm = el.querySelector('#cn').value.trim(); if (!nm) return; m.name = nm; m.says = el.querySelector('#cs').value.trim(); m.helpful = h; save(); closeSheet(); render(true); };
+    });
+  };
   A.ckind = function () { memberSheet(true); };
   return { html: html };
 }
@@ -1061,6 +1150,7 @@ function systemPrompt() {
     '너는 «파도»라는 개인용 앱 안의 상담 봇이야. 사용자는 저드슨 브루어의 『식탐 해방』(원제 The Hunger Habit) 21일 챌린지를 따라 하고 있고, 끈기가 부족해 자주 멈췄다 다시 시작하는 사람이야.',
     '책의 핵심: 의지력으로 참는 게 아니라 알아차림으로 습관의 보상 가치를 바꾼다. 습관 루프는 계기→행동→결과. 허기 테스트로 스트레스·감정 / 습관 / 진짜 허기를 구별한다(애매하면 마지막 식사 후 4–5시간 기준). 쾌락 안정기: 한 입마다 즐거움이 줄기 시작하면 멈춰도 되는 신호, 그 너머는 탐닉의 절벽. 갈망의 도구 1: 먹으며 주의를 기울이고 다 먹은 뒤 양·몸·기분·생각을 매겨 “여기서 무엇을 얻었나”를 묻는다. 갈망의 도구 2: 먹기 전에 그 과정을 상상하고 충동이 얼마나 변했는지 본다. RAIN: 알아차리고 마음을 가라앉히기 → 밀어내지 않고 받아들이기 → 호기심으로 몸의 감각 탐색 → 짧은 이름 붙이기(주목하기). 갈망은 파도처럼 올라왔다 저절로 지나가며 보통 몇 분이면 된다. 저항하거나 시계를 보며 버티면 오히려 커진다. 다섯 손가락 호흡은 걱정으로 머리가 꽉 찰 때. 친절과 자기 연민이 핵심이고, 좌절은 실패가 아니라 정보다. 환멸감 정보은행(먹고 나서 실제로 별로였던 기억)과 매혹 정보은행(먹고 나서도 좋았던 음식)을 쌓는다.',
     '답하는 법: 한국어 해요체로, 따뜻하고 짧게(3~6문장). 첫 문장은 지금의 마음을 알아주기. 그다음 지금 바로 할 수 있는 몸 중심의 행동 하나를 구체적으로. 먹지 말라고 금지하지 말고, 먹더라도 주의를 기울이며 정보를 모으면 된다고 선택권을 줘. 사용자의 기록이 있으면 그걸 근거로 써(예: 지난번 그 음식 먹고 어땠는지). 칼로리, 체중, 식단 규칙 얘기는 하지 마. 마지막 줄에 앱 도구를 1~2개만 다음 토큰 그대로 넣어: ' + tools + '. 토큰은 버튼으로 바뀌니 다른 설명 없이 토큰만 적어.',
+    '사용자가 포기하고 싶어 하거나, 이미 먹어서 자책하거나, 의지가 꺾였다고 말하면 Day 1에 스스로 정한 목표와 그 이유를 사용자 정보에서 찾아 한 문장으로 다정하게 상기시켜 줘.',
     '안전: 구토, 극단적 굶기, 자해나 죽고 싶다는 말이 나오면 도구보다 마음을 먼저 살피고, 전문가 도움(자살예방상담전화 109, 정신건강복지센터, 병원)을 부드럽게 권해. 너는 의사가 아니야.',
     '사용자 정보:\n' + userContext()
   ].join('\n\n');
@@ -1075,11 +1165,11 @@ function offlineReply(q) {
     var rec = logsOf('c1', function (l) { return (S.focusFood && l.food === S.focusFood) || (food && l.food.replace(/\s/g, '').indexOf(food) >= 0); }).slice(-1)[0];
     if (rec) past = ' 지난번 ' + rec.food + '을(를) 먹었을 때 합계는 ' + signed(rec.total) + '였어요' + (rec.gain ? ': “' + rec.gain + '”' : '') + '. 그 느낌을 먼저 떠올려 봐요.';
   }
-  if (has(['폭식', '먹어버렸', '과식', '다먹었', '후회', '망했', '또먹'])) return { text: '이미 먹었어도 괜찮아요. 좌절은 실패가 아니라 다음을 위한 정보예요. 지금 배와 기분이 어떤지, 판단 말고 몸이 하는 말을 그대로 적어두면 그게 바로 환멸감 정보은행이 돼요. 머릿속에서 “넌 또 그랬어” 하는 목소리가 들리면, 그 위원에게 이름을 붙여봐요.', tools: ['c1', 'retro'] };
+  if (has(['폭식', '먹어버렸', '과식', '다먹었', '후회', '망했', '또먹'])) return { text: '이미 먹었어도 괜찮아요. 좌절은 실패가 아니라 다음을 위한 정보예요. 지금 배와 기분이 어떤지, 판단 말고 몸이 하는 말을 그대로 적어두면 그게 바로 환멸감 정보은행이 돼요. 머릿속에서 “넌 또 그랬어” 하는 목소리가 들리면, 그 위원에게 이름을 붙여봐요.' + goalLine(), tools: ['c1', 'retro'] };
   if (has(['혼나', '혼났', '스트레스', '화나', '화가', '짜증', '속상', '우울', '슬퍼', '불안', '외로', '힘들', '서러', '억울'])) return { text: '많이 속상했겠어요. 지금 당기는 건 배가 아니라 마음이 보내는 신호일 가능성이 커요. 30초만, 그 느낌이 몸 어디에 있는지 찾아봐요. 가슴이 조이는지, 얼굴이 뜨거운지. 갈망은 파도처럼 올라왔다가 보통 몇 분이면 지나가요.' + past + ' 그래도 먹고 싶으면 먹어도 돼요. 대신 한 입씩 느끼면서요.', tools: ['rain', 'hunger'] };
   if (has(['심심', '지루', '습관', '밤만', '밤에', '야식', '자기전', '늘', '맨날', '자꾸'])) return { text: '늘 그맘때 찾게 되는 거라면 습관 루프일 가능성이 커요. 먹기 전에 그 장면을 끝까지 상상해 봐요. 먹는 동안, 다 먹은 뒤 배와 기분, 다음 날 아침까지.' + past + ' 상상한 뒤에 충동이 얼마나 변했는지 보는 것만으로도 뇌가 다시 배워요.', tools: ['c2', 'loop'] };
   if (has(['배고', '꼬르륵', '공복', '안먹었', '굶었', '허기'])) return { text: '진짜 배고픔일 수도 있어요. 허기 테스트로 확인해 보고, 몸이 연료를 원하는 거면 먹어도 괜찮아요. 한 입마다 즐거움이 줄어드는 순간을 찾아보세요. 거기가 멈춰도 되는 자리예요.', tools: ['hunger', 'plateau'] };
-  if (has(['하기싫', '귀찮', '포기', '못하겠', '끈기', '의지', '작심삼일', '지쳤'])) return { text: '하기 싫은 날도 있어요. 쉬어간 날은 실패가 아니고, 파도는 다시 오면 그때 타면 돼요. 오늘은 딱 하나만, 10초짜리로 해봐요. 지금 기분에 이름 하나 붙이기, 그거면 충분해요.', tools: ['noting', 'today'] };
+  if (has(['하기싫', '귀찮', '포기', '못하겠', '끈기', '의지', '작심삼일', '지쳤'])) return { text: '하기 싫은 날도 있어요. 쉬어간 날은 실패가 아니고, 파도는 다시 오면 그때 타면 돼요. 오늘은 딱 하나만, 10초짜리로 해봐요. 지금 기분에 이름 하나 붙이기, 그거면 충분해요.' + goalLine(), tools: ['noting', 'today'] };
   if (food) return { text: food + '이(가) 당기는군요. 먼저 지금이 진짜 허기인지, 마음이 보내는 신호인지 살펴봐요.' + past + ' 어느 쪽이든 먹는다면 한 입씩 주의를 기울이며 정보를 모으면 돼요.', tools: ['hunger', 'c2'] };
   return { text: '지금 어떤 상황인지 조금만 더 들려줄래요? 먹고 싶은 마음이 들었다면, 먼저 허기 테스트로 그게 몸의 신호인지 마음의 신호인지 살펴보는 게 좋아요.', tools: ['hunger', 'rain'] };
 }
@@ -1227,7 +1317,7 @@ function render(keep) {
 }
 app.addEventListener('click', function (e) {
   var el = e.target.closest('[data-act]'); if (!el) return;
-  var fn = A[el.getAttribute('data-act')]; if (!fn) return;
+  var act = el.getAttribute('data-act'), fn = A[act] || (act === 'editlog' ? editLog : null); if (!fn) return;
   if (el.tagName !== 'A') e.preventDefault();
   fn(el.getAttribute('data-arg'), el);
 });
