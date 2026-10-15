@@ -190,3 +190,9 @@ input[type=date].input,input[type=time].input{min-height:48px;-webkit-appearance
 .fab{position:fixed;right:max(16px,calc(50% - 224px));z-index:25;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:58px;height:58px;border-radius:29px;background:var(--sea);color:#fff;text-decoration:none;font-size:10px;font-weight:600;box-shadow:0 8px 22px rgba(22,48,43,.28)}
 .fab svg{width:24px;height:24px}
 select.input{-webkit-appearance:none;appearance:none;min-height:48px}
+
+/* 홈 하단: 지금 먹고 싶어요 + 묻기 */
+.dock{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--safe-bottom) + 76px);width:min(436px,calc(100% - 44px));z-index:20;display:flex;gap:10px}
+.dock .sos{position:static;transform:none;width:auto;flex:1;min-width:0}
+.askbtn{width:66px;flex-shrink:0;border-radius:18px;background:var(--sea);color:#fff;text-decoration:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;font-weight:600;box-shadow:0 8px 24px rgba(22,48,43,.18)}
+.askbtn svg{width:24px;height:24px}

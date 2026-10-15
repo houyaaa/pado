@@ -104,6 +104,9 @@ function sos() {
     '<span class="grow" style="display:flex;flex-direction:column"><span class="t">지금 먹고 싶어요</span><span class="d">허기 테스트부터 같이 해봐요</span></span>' +
     '<span style="width:18px;height:18px;display:flex">' + I.next + '</span></a>';
 }
+function dock() {
+  return '<div class="dock">' + sos() + '<a class="askbtn" href="#/ask" aria-label="파도에게 묻기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 10.5c1.3-1.4 2.7-1.4 4 0s2.7 1.4 4 0"/></svg><span>묻기</span></a></div>';
+}
 function chips(list, sel, act, multi) {
   return '<div class="wrap">' + list.map(function (x, i) {
     var on = multi ? (sel || []).indexOf(x) >= 0 : sel === x;
@@ -187,15 +190,14 @@ function viewHome() {
   var due = S.followups.filter(function (f) { return f.due <= Date.now(); });
   var tasks = d.tasks.filter(function (x) { return !x.optional; });
   var doneCount = tasks.filter(function (x) { return taskDone(x, n); }).length;
-  var html = '<main class="screen fade">';
-  html += '<div class="between"><div class="brand"><img src="icons/icon-192.png" alt="">파도</div><a class="iconbtn" href="#/settings" aria-label="설정">' + I.gear + '</a></div>';
+  var html = '<main class="screen fade" style="gap:22px">';
+  html += '<div class="between" style="margin-right:-10px"><span class="small muted">' + fLong(t) + '</span><a class="iconbtn" href="#/settings" aria-label="설정" style="color:var(--mute)">' + I.gear + '</a></div>';
 
   if (GAP >= 3 && !T.hideGap) {
     var prev = n > 1 ? n - 1 : null;
-    html += '<div class="card kelp tight"><p class="small"><b>' + GAP + '일 만이에요. 다시 와줘서 반가워요.</b><br>쉬었던 날은 실패가 아니에요. 어디서 시작할까요?</p>' +
-      '<div class="row"><a class="btn dark small" href="#/day/' + n + '" data-act="hideGap">Day ' + n + ' 이어서</a>' +
-      (prev ? '<a class="btn ghost small" href="#/day/' + prev + '" data-act="hideGap">Day ' + prev + ' 다시 보기</a>' : '') + '</div>' +
-      (S.goal && S.goal.items && S.goal.items.length ? '<p class="xs muted">내 목표: ' + esc(S.goal.items.join(', ')) + '</p>' : '') + '</div>';
+    html += '<div class="card kelp tight"><p class="small"><b>' + GAP + '일 만이에요. 다시 와줘서 반가워요.</b> 쉬어간 날은 실패가 아니에요.</p>' +
+      '<div class="row"><button class="btn dark small" data-act="hideGap">Day ' + n + ' 이어서</button>' +
+      (prev ? '<a class="btn ghost small" href="#/day/' + prev + '" data-act="hideGap">Day ' + prev + ' 다시 보기</a>' : '') + '</div></div>';
   }
 
   due.forEach(function (f) {
@@ -205,39 +207,31 @@ function viewHome() {
       '<button class="chip add" data-act="follow" data-arg="' + f.id + '|">건너뛰기</button></div></div>';
   });
 
-  html += '<div class="stack" style="gap:6px"><span class="small muted">' + fLong(t) + '</span><h1 class="h-xl">' + nl(d.headline) + '</h1></div>';
+  var doneDays = 0; for (var i = 1; i <= 21; i++) if (S.days[i] && S.days[i].done) doneDays++;
+  html += '<div class="stack" style="gap:10px">' +
+    '<div class="between"><span class="eyebrow">Day ' + n + ' · ' + P.steps[d.step].name.split(' · ')[1] + '</span><span class="xs muted">' + doneDays + ' / 21</span></div>' +
+    '<div class="bar" style="flex:none;height:4px" aria-label="21일 중 ' + doneDays + '일 완료"><i style="width:' + Math.max(2, Math.round(doneDays / 21 * 100)) + '%;background:var(--sea)"></i></div>' +
+    '<h1 class="h-xl" style="margin-top:8px">' + nl(d.headline) + '</h1>' +
+    (S.goal && S.goal.items && S.goal.items.length ? '<a href="#/f/goal" class="small muted" style="text-decoration:none">내 목표 · <span style="color:var(--ink)">' + esc(S.goal.items.join(' · ')) + '</span></a>' : '') +
+    '</div>';
 
-  html += '<a class="card tight row" href="' + (S.goal ? '#/f/goal' : '#/day/1') + '" style="text-decoration:none;color:inherit;flex-direction:row">' + '<span style="width:20px;height:20px;display:flex">' + I.target + '</span>' +
-    '<span class="grow" style="font-size:15px"><span class="muted">내 목표</span>  <b style="font-weight:600">' + (S.goal && S.goal.items && S.goal.items.length ? esc(S.goal.items.join(' · ')) : 'Day 1에서 정해요') + '</b></span></a>';
-
-  html += '<div class="stack"><div class="between small muted"><span>' + P.steps[d.step].name + '</span><span>Day ' + n + ' / 21</span></div><div class="dots" aria-label="21일 중 ' + n + '일째">';
-  for (var i = 1; i <= 21; i++) {
-    var c = (S.days[i] && S.days[i].done) ? 'done' : (i === n ? 'now' : '');
-    html += '<span class="dot ' + c + ((i === 6 || i === 17) ? ' gap' : '') + '"></span>';
-  }
-  html += '</div></div>';
-
-  html += '<div class="card"><div class="between"><span class="eyebrow">오늘의 실천</span><span class="xs muted">책 ' + d.page + '쪽</span></div>' +
-    '<div class="stack" style="gap:6px"><h2 class="h-m">' + esc(d.title) + '</h2><p class="lead" style="font-size:14px">' + esc(d.why) + '</p></div><div class="stack">';
+  html += '<div class="card" style="gap:10px"><div class="between"><span class="small" style="font-weight:600">오늘 할 일</span><span class="xs muted">책 ' + d.page + '쪽</span></div>';
   var firstTodo = true;
   d.tasks.forEach(function (x, k) {
     var ok = taskDone(x, n);
     var st = ok ? 'done' : (firstTodo ? 'todo' : 'idle'); if (!ok) firstTodo = false;
     html += '<a class="task' + (ok ? ' done' : '') + '" href="' + x.route + '">' + checkMark(st, k + 1) + '<span class="grow"><span class="t">' + esc(x.label) + (x.optional ? ' <span class="pill">선택</span>' : '') + '</span>' + (taskProgress(x, n) ? '<br><span class="d">' + taskProgress(x, n) + '</span>' : '') + '</span>' + (ok ? '' : '<span style="width:18px;height:18px;display:flex;color:var(--sea)">' + I.next + '</span>') + '</a>';
   });
-  html += '</div><a class="btn primary" href="#/day/' + n + '">' + (doneCount || dd.opened ? '이어서 하기' : '시작하기') + '</a></div>';
-
-  html += '<p class="xs muted" style="text-align:center;margin-top:-6px">할 일을 다 하면 Day ' + n + '이 자동으로 완료돼요</p>';
-  html += '<p class="xs muted" style="text-align:center">지금까지 쌓인 기록 <b style="color:var(--ink)">' + S.logs.length + '개</b> · 쌓이기만 해요</p>';
+  html += '<a class="btn primary" href="#/day/' + n + '" style="margin-top:4px">' + (doneCount || dd.opened ? '이어서 하기' : '시작하기') + '</a></div>';
   html += '</main>';
 
-  A.hideGap = function () { T.hideGap = true; GAP = 0; };
+  A.hideGap = function () { T.hideGap = true; GAP = 0; render(true); };
   A.follow = function (a) {
     var p = a.split('|'), f = S.followups.filter(function (x) { return x.id === p[0]; })[0];
     if (f && p[1]) { var l = S.logs.filter(function (x) { return x.id === f.ref; })[0]; if (l) { l.after = p[1]; } }
     S.followups = S.followups.filter(function (x) { return x.id !== p[0]; }); save(); render(true);
   };
-  return { html: html + sos() + tabbar('today') };
+  return { html: html + dock() + tabbar('today') };
 }
 
 /* ---------- 21일 이후 ---------- */
@@ -254,7 +248,7 @@ function viewAfter() {
     if (!confirm('기록은 그대로 두고 Day 진도만 처음부터 다시 시작할까요?')) return;
     S.rounds.push({ days: S.days, endedAt: today() }); S.days = {}; save(); toast('다시 Day 1부터, 이번엔 더 가볍게'); render();
   };
-  return { html: html + sos() + tabbar('today') };
+  return { html: html + dock() + tabbar('today') };
 }
 function toolCard(href, t, d) { return '<a class="tool" href="' + href + '"><b>' + t + '</b><span>' + d + '</span></a>'; }
 
@@ -1219,7 +1213,7 @@ function render(keep) {
       v = ({ goal: viewGoal, story: viewStory, survey: function () { return viewSurvey(p[2]); }, retro: viewRetro, committee: viewCommittee, choice: viewChoice, enchant: viewEnchant, kind: viewKind, evidence: viewEvidence, review: viewReview }[p[1]] || viewTools)(); break;
     default: v = viewHome();
   }
-  var fw = { '': 'home', journey: 'tab', bank: 'tab', tools: 'tab', day: 'day' }[p[0]];
+  var fw = { journey: 'tab', bank: 'tab', tools: 'tab', day: 'day' }[p[0]];
   if (fw) v.html += fab(fw);
   app.innerHTML = v.html;
   if (!keep || routeChanged) {
