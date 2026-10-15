@@ -196,3 +196,13 @@ select.input{-webkit-appearance:none;appearance:none;min-height:48px}
 .dock .sos{position:static;transform:none;width:auto;flex:1;min-width:0}
 .askbtn{width:66px;flex-shrink:0;border-radius:18px;background:var(--sea);color:#fff;text-decoration:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;font-weight:600;box-shadow:0 8px 24px rgba(22,48,43,.18)}
 .askbtn svg{width:24px;height:24px}
+
+/* 오늘의 일기 */
+a.c{text-decoration:none;color:inherit;position:relative}
+.cal .c{position:relative}
+.cal .dd{position:absolute;top:0;left:50%;margin-left:11px;width:6px;height:6px;border-radius:3px;background:var(--emo)}
+.timeline-d{display:flex;flex-direction:column}
+.timeline-d .dl{display:flex;gap:12px;align-items:flex-start;padding:9px 0;border:0;border-top:1px solid var(--soft);background:transparent;text-align:left;width:100%;color:var(--ink)}
+.timeline-d .dl:first-child{border-top:0}
+.timeline-d .tm{min-width:42px;font-size:12px;font-weight:600;color:var(--sea);padding-top:2px;display:flex}
+.timeline-d .tm svg{width:16px;height:16px}

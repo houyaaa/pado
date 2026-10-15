@@ -8,7 +8,7 @@ var app = document.getElementById('app');
 function fresh() {
   return { v: 1, days: {}, goal: null, story: {}, survey: { pre: null, post: null }, logs: [], committee: [],
     routines: ['샤워', '양치', '출근길', '설거지'], focusFood: null, followups: [], lastOpen: null, lastMeal: null,
-    review: {}, rounds: [], created: today() };
+    review: {}, rounds: [], diary: {}, created: today() };
 }
 var S;
 try { S = Object.assign(fresh(), JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { S = fresh(); }
@@ -16,6 +16,7 @@ function save() {
   try { localStorage.setItem(KEY, JSON.stringify(S)); }
   catch (e) { toast('저장 공간이 부족해요. 설정에서 백업해주세요.'); }
 }
+if (!S.diary || typeof S.diary !== 'object') S.diary = {};
 if (navigator.storage && navigator.storage.persist) { navigator.storage.persist().catch(function () {}); }
 
 /* ---------- 날짜 ---------- */
@@ -83,6 +84,7 @@ var I = {
   journey: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h6a3 3 0 0 0 0-6h-4a3 3 0 0 1 0-6h6"/></svg>',
   bank: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7l8-4 8 4-8 4z"/><path d="M4 12l8 4 8-4"/><path d="M4 17l8 4 8-4"/></svg>',
   tools: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg>',
+  pen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>'
 };
 function ic(name, cls) { return '<span class="ico ' + (cls || '') + '" aria-hidden="true">' + I[name] + '</span>'; }
@@ -293,6 +295,7 @@ function viewHome() {
     html += '<a class="task' + (ok ? ' done' : '') + '" href="' + x.route + '">' + checkMark(st, k + 1) + '<span class="grow"><span class="t">' + esc(x.label) + (x.optional ? ' <span class="pill">선택</span>' : '') + '</span>' + (taskProgress(x, n) ? '<br><span class="d">' + taskProgress(x, n) + '</span>' : '') + '</span>' + (ok ? '' : '<span style="width:18px;height:18px;display:flex;color:var(--sea)">' + I.next + '</span>') + '</a>';
   });
   html += '<a class="btn primary" href="#/day/' + n + '" style="margin-top:4px">' + (doneCount || dd.opened ? '이어서 하기' : '시작하기') + '</a></div>';
+  html += diaryCard();
   html += '</main>';
 
   A.hideGap = function () { T.hideGap = true; GAP = 0; render(true); };
@@ -304,6 +307,83 @@ function viewHome() {
   return { html: html + dock() + tabbar('today') };
 }
 
+/* ---------- 홈의 오늘의 일기 카드 ---------- */
+function diaryCard() {
+  var t = today(), e = S.diary[t], evening = new Date().getHours() >= 18;
+  var pen = '<span style="width:22px;height:22px;display:flex;color:var(--sea);flex:none">' + I.pen + '</span>';
+  if (e && (e.text || e.mood || e.body)) {
+    var first = (e.text || '').split('\n')[0];
+    return '<a class="card tight" href="#/diary" style="text-decoration:none;color:inherit"><div class="row">' + pen + '<span class="grow"><b class="small">오늘의 일기</b><br><span class="small" style="color:var(--body)">' +
+      esc([e.mood, e.body].filter(Boolean).join(' · ') + (first ? (e.mood || e.body ? ' · ' : '') + (first.length > 40 ? first.slice(0, 40) + '…' : first) : '')) + '</span></span><span class="xs" style="color:var(--sea);font-weight:600">이어 쓰기</span></div></a>';
+  }
+  if (evening) return '<a class="card kelp tight" href="#/diary" style="text-decoration:none;color:inherit"><div class="row">' + pen + '<span class="grow"><b style="font-family:var(--serif);font-size:17px;font-weight:600">오늘 하루, 짧게 정리해볼까요?</b><br><span class="small" style="color:var(--body)">무엇을 하다가 무엇을 먹었고, 어땠는지 한두 줄이면 돼요</span></span><span style="width:18px;height:18px;display:flex;color:var(--sea)">' + I.next + '</span></div></a>';
+  return '<a class="card tight" href="#/diary" style="text-decoration:none;color:inherit"><div class="row">' + pen + '<span class="grow"><b class="small">오늘의 일기</b><br><span class="xs muted">언제든 짧게 남겨요</span></span><span style="width:18px;height:18px;display:flex;color:var(--mute)">' + I.next + '</span></div></a>';
+}
+
+/* ===================================================== 오늘의 일기 */
+var MOODS = ['가벼워요', '괜찮아요', '그저 그래요', '무거워요', '힘들어요'];
+var BODIES = ['가뿐해요', '적당해요', '더부룩해요', '너무 배불러요', '허기져요'];
+var DIARY_STARTS = ['오늘은 ', '하다가 ', '먹고 나서 ', '알아차린 건 ', '내일은 '];
+function diaryHas(e) { return !!(e && ((e.text || '').trim() || e.mood || e.body)); }
+function viewDiary(date) {
+  var t = today();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '') || date > t) date = t;
+  var e = S.diary[date] || {}, isToday = date === t;
+  if (T.text == null) T.text = e.text || '';
+  var html = '<main class="screen plain fade">' + topbar(backBtn(isToday ? '#/' : '#/journey'), '', '');
+  var prev = addDays(date, -1), next = addDays(date, 1);
+  html += '<div class="stack" style="gap:4px"><span class="eyebrow">' + (isToday ? '오늘의 일기' : '그날의 일기') + '</span><h1 class="h-l">' + fMD(date) + '</h1>' +
+    '<div class="row" style="gap:16px"><a class="xs" href="#/diary/' + prev + '" style="color:var(--sea);font-weight:600;text-decoration:none;padding:6px 0">‹ 전날</a>' + (next <= t ? '<a class="xs" href="#/diary/' + next + '" style="color:var(--sea);font-weight:600;text-decoration:none;padding:6px 0">다음날 ›</a>' : '') + '</div></div>';
+
+  // 그날 앱에 남긴 기록
+  var items = S.logs.filter(function (l) { return l.date === date; }).map(function (l) { return { at: l.at, l: l }; });
+  for (var k = 1; k <= 21; k++) { var dd = S.days[k]; if (dd && dd.done && dd.doneAt === date) items.push({ at: Infinity, day: k }); }
+  items.sort(function (a, b) { return a.at - b.at; });
+  html += '<div class="card" style="gap:6px"><span class="small" style="font-weight:600">이날 앱에 남긴 것</span>';
+  if (items.length) {
+    html += '<div class="timeline-d">' + items.map(function (x) {
+      if (x.day) return '<div class="dl"><span class="tm">' + I.check + '</span><span class="grow"><b class="small">Day ' + x.day + ' 완료</b><br><span class="xs muted">' + esc(P.days[x.day - 1].title) + '</span></span></div>';
+      var l = x.l, d = new Date(l.at), s = summaryOf(l);
+      return '<button class="dl" data-act="editlog" data-arg="' + l.id + '"><span class="tm">' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + '</span><span class="grow"><b class="small">' + esc(typeName(l)) + '</b>' + (s ? '<br><span class="xs" style="color:var(--body)">' + esc(s) + '</span>' : '') + '</span></button>';
+    }).join('') + '</div><span class="xs muted">보면서 쓰면 기억이 잘 나요. 누르면 그 기록을 고칠 수 있어요.</span>';
+  } else {
+    html += '<span class="small muted">' + (isToday ? '아직 남긴 기록이 없어요. 일기만 써도 충분해요.' : '이날은 앱에 남긴 기록이 없어요.') + '</span>';
+  }
+  html += '</div>';
+
+  html += '<div class="stack" style="gap:10px"><span class="small" style="font-weight:600">' + (isToday ? '오늘 하루는 어땠나요?' : '이날 하루는 어땠나요?') + '</span>' +
+    '<textarea class="input" id="dtext" style="min-height:200px" placeholder="예) 오후에 회의가 길어져서 지쳤다가 편의점에서 과자를 샀다. 먹을 땐 좋았는데 먹고 나서 속이 더부룩했다. 생각해 보니 배가 고팠던 게 아니라 쉬고 싶었던 것 같다.">' + esc(T.text) + '</textarea>' +
+    '<div class="wrap">' + DIARY_STARTS.map(function (w) { return '<button class="chip add" data-act="dstart" data-arg="' + esc(w) + '">' + esc(w.trim()) + '…</button>'; }).join('') + '</div></div>';
+
+  html += '<div class="stack" style="gap:8px"><span class="small" style="font-weight:600">기분 <span class="xs muted" style="font-weight:400">· 선택</span></span>' + chips(MOODS, e.mood, 'dmood') + '</div>';
+  html += '<div class="stack" style="gap:8px"><span class="small" style="font-weight:600">몸의 느낌 <span class="xs muted" style="font-weight:400">· 선택</span></span>' + chips(BODIES, e.body, 'dbody') + '</div>';
+  html += '<button class="btn primary" data-act="dsave">저장</button>';
+  if (diaryHas(e)) html += '<button class="linkbtn" data-act="ddel" style="color:#9A4F36;font-weight:400">이 일기 지우기</button>';
+  html += '<p class="xs muted" style="text-align:center">쓰는 동안 자동으로 저장돼요</p></main>';
+
+  function store() {
+    var cur = S.diary[date] || {};
+    cur.text = T.text; if (!cur.at) cur.at = Date.now(); cur.upd = Date.now();
+    if (diaryHas(cur)) S.diary[date] = cur; else delete S.diary[date];
+    save();
+  }
+  function pick(field, v) { var cur = S.diary[date] || {}; cur[field] = cur[field] === v ? '' : v; S.diary[date] = cur; store(); render(true); }
+  A.dmood = function (v) { pick('mood', v); };
+  A.dbody = function (v) { pick('body', v); };
+  A.dstart = function (w) {
+    var ta = document.getElementById('dtext');
+    T.text = ta.value + (ta.value && !/\s$/.test(ta.value) ? '\n' : '') + w; ta.value = T.text; store();
+    ta.focus(); ta.setSelectionRange(T.text.length, T.text.length);
+  };
+  A.dsave = function () { store(); toast(diaryHas(S.diary[date]) ? '일기를 저장했어요' : '비어 있어서 저장하지 않았어요'); go(isToday ? '#/' : '#/journey'); };
+  A.ddel = function () { if (!confirm('이 날의 일기를 지울까요?')) return; delete S.diary[date]; T.text = ''; save(); render(true); };
+  return { html: html, mount: function (el) {
+    var ta = el.querySelector('#dtext'), timer;
+    ta.oninput = function () { T.text = ta.value; clearTimeout(timer); timer = setTimeout(store, 400); };
+    ta.onblur = function () { clearTimeout(timer); store(); };
+  } };
+}
+
 /* ---------- 21일 이후 ---------- */
 function viewAfter() {
   var html = '<main class="screen fade">';
@@ -311,6 +391,7 @@ function viewAfter() {
   html += '<div class="stack" style="gap:6px"><span class="small muted">' + fLong(today()) + '</span><h1 class="h-xl">21일을<br>지나왔어요</h1><p class="lead">이제부터는 필요할 때 도구를 꺼내 쓰고, 정보은행을 계속 채워가요.</p></div>';
   if (S.goal && S.goal.items) html += '<div class="card tight"><span class="xs muted">내 목표</span><b>' + esc(S.goal.items.join(' · ')) + '</b></div>';
   html += '<div class="grid2">' + toolCard('#/t/rain', 'RAIN', '갈망의 파도 타기') + toolCard('#/t/c2', '갈망의 도구 2', '먹기 전에 상상하기') + toolCard('#/t/plateau', '쾌락 안정기', '한 입씩 즐거움 재기') + toolCard('#/t/c1', '갈망의 도구 1', '먹은 뒤 기록') + '</div>';
+  html += diaryCard();
   html += '<a class="card tight" href="#/f/review" style="text-decoration:none;color:inherit"><b>전과 후 다시 보기</b><span class="small muted">Day 1의 나와 지금의 나</span></a>';
   html += '<button class="btn ghost" data-act="again">21일 다시 돌기</button>';
   html += '</main>';
@@ -423,9 +504,11 @@ function viewJourney() {
     if (doneMap[key]) { cls = 'done'; tag = doneMap[key].join(' '); }
     else if (logDates[key]) { cls = 'rec' + (key === t ? ' today' : ''); tag = key === t ? '오늘' : '기록'; }
     else if (key === t) { cls = 'today'; tag = '오늘'; }
-    html += '<div class="c"><span class="n ' + cls + '">' + dI + '</span><span class="tag">' + tag + '</span></div>';
+    var dot = diaryHas(S.diary[key]) ? '<i class="dd" aria-label="일기 있음"></i>' : '';
+    html += key <= t ? '<a class="c" href="#/diary/' + key + '" aria-label="' + m + '월 ' + dI + '일 일기"><span class="n ' + cls + '">' + dI + '</span>' + dot + '<span class="tag">' + tag + '</span></a>'
+      : '<div class="c"><span class="n ' + cls + '">' + dI + '</span><span class="tag">' + tag + '</span></div>';
   }
-  html += '</div><div class="legend"><span><i style="background:var(--sea)"></i>Day를 끝낸 날</span><span><i style="background:var(--kelp)"></i>기록만 한 날</span></div></div>';
+  html += '</div><div class="legend"><span><i style="background:var(--sea)"></i>Day를 끝낸 날</span><span><i style="background:var(--kelp)"></i>기록만 한 날</span><span><i style="background:var(--emo);width:6px;height:6px"></i>일기 쓴 날</span></div><p class="xs muted" style="margin:0">날짜를 누르면 그날의 일기를 보고 쓸 수 있어요.</p></div>';
 
   html += '<div class="card"><span class="small" style="font-weight:600">지금까지 쌓은 경험</span><div class="grid3">' + evidenceStats().slice(0, 6).map(function (s) {
     return '<a class="stat" href="' + s.href + '"><b>' + s.n + '</b><span>' + s.label + '</span></a>';
@@ -500,8 +583,12 @@ function viewBank() {
     if (stops.length) html += '<div class="stack"><span class="small muted" style="font-weight:600">절벽 직전에 멈춘 느낌</span>' + stops.slice(-3).reverse().map(function (l) { return '<div class="card tight"><span class="small">“' + esc(l.note) + '”</span><span class="xs muted">' + esc(l.food || '') + ' · ' + fShort(l.date) + '</span></div>'; }).join('') + '</div>';
     html += '<a class="btn primary" href="#/f/enchant">매혹 기록 남기기</a>';
   } else {
-    html += S.logs.length ? S.logs.slice().reverse().slice(0, 80).map(function (l) {
-      return logRow(l);
+    var all = S.logs.map(function (l) { return { at: l.at, l: l }; });
+    Object.keys(S.diary).forEach(function (k) { if (diaryHas(S.diary[k])) all.push({ at: toDate(k).getTime() + 86399000, diary: k }); });
+    all.sort(function (a, b) { return b.at - a.at; });
+    html += all.length ? all.slice(0, 100).map(function (x) {
+      if (x.diary) { var e = S.diary[x.diary]; return '<a class="record" href="#/diary/' + x.diary + '"><span class="grow"><b class="small">오늘의 일기</b><br><span class="small" style="color:var(--body)">' + esc([e.mood, e.body].filter(Boolean).concat((e.text || '').split('\n')[0] ? [(e.text || '').split('\n')[0].slice(0, 50)] : []).join(' · ')) + '</span><br><span class="xs muted">' + fShort(x.diary) + '</span></span><span class="xs" style="color:var(--sea);font-weight:600;align-self:center">열기</span></a>'; }
+      return logRow(x.l);
     }).join('') : '<div class="empty">아직 기록이 없어요</div>';
   }
   html += '</main>';
@@ -1140,6 +1227,8 @@ function userContext() {
   if (en.length) out.push('매혹 정보은행(먹고 나서도 좋았던 음식): ' + en.map(function (l) { return l.food; }).join(', '));
   var com = S.committee.filter(function (m) { return !m.helpful; }).slice(0, 4);
   if (com.length) out.push('머릿속 위원회: ' + com.map(function (m) { return m.name; }).join(', '));
+  var dk = Object.keys(S.diary).filter(function (k) { return diaryHas(S.diary[k]) && diffDays(k, today()) <= 14; }).sort().slice(-5);
+  if (dk.length) out.push('최근 일기:\n' + dk.map(function (k) { var e = S.diary[k]; return '- ' + fMD(k) + (e.mood ? ' 기분 ' + e.mood : '') + (e.body ? ', 몸 ' + e.body : '') + ': ' + (e.text || '').replace(/\s+/g, ' ').slice(0, 300); }).join('\n'));
   var learned = P.days.filter(function (x) { return S.days[x.n] && S.days[x.n].done; }).map(function (x) { return x.title; });
   if (learned.length) out.push('이미 배운 Day: ' + learned.join(', '));
   return out.join('\n');
@@ -1150,6 +1239,7 @@ function systemPrompt() {
     '너는 «파도»라는 개인용 앱 안의 상담 봇이야. 사용자는 저드슨 브루어의 『식탐 해방』(원제 The Hunger Habit) 21일 챌린지를 따라 하고 있고, 끈기가 부족해 자주 멈췄다 다시 시작하는 사람이야.',
     '책의 핵심: 의지력으로 참는 게 아니라 알아차림으로 습관의 보상 가치를 바꾼다. 습관 루프는 계기→행동→결과. 허기 테스트로 스트레스·감정 / 습관 / 진짜 허기를 구별한다(애매하면 마지막 식사 후 4–5시간 기준). 쾌락 안정기: 한 입마다 즐거움이 줄기 시작하면 멈춰도 되는 신호, 그 너머는 탐닉의 절벽. 갈망의 도구 1: 먹으며 주의를 기울이고 다 먹은 뒤 양·몸·기분·생각을 매겨 “여기서 무엇을 얻었나”를 묻는다. 갈망의 도구 2: 먹기 전에 그 과정을 상상하고 충동이 얼마나 변했는지 본다. RAIN: 알아차리고 마음을 가라앉히기 → 밀어내지 않고 받아들이기 → 호기심으로 몸의 감각 탐색 → 짧은 이름 붙이기(주목하기). 갈망은 파도처럼 올라왔다 저절로 지나가며 보통 몇 분이면 된다. 저항하거나 시계를 보며 버티면 오히려 커진다. 다섯 손가락 호흡은 걱정으로 머리가 꽉 찰 때. 친절과 자기 연민이 핵심이고, 좌절은 실패가 아니라 정보다. 환멸감 정보은행(먹고 나서 실제로 별로였던 기억)과 매혹 정보은행(먹고 나서도 좋았던 음식)을 쌓는다.',
     '답하는 법: 한국어 해요체로, 따뜻하고 짧게(3~6문장). 첫 문장은 지금의 마음을 알아주기. 그다음 지금 바로 할 수 있는 몸 중심의 행동 하나를 구체적으로. 먹지 말라고 금지하지 말고, 먹더라도 주의를 기울이며 정보를 모으면 된다고 선택권을 줘. 사용자의 기록이 있으면 그걸 근거로 써(예: 지난번 그 음식 먹고 어땠는지). 칼로리, 체중, 식단 규칙 얘기는 하지 마. 마지막 줄에 앱 도구를 1~2개만 다음 토큰 그대로 넣어: ' + tools + '. 토큰은 버튼으로 바뀌니 다른 설명 없이 토큰만 적어.',
+    '사용자 정보에 최근 일기가 있으면, 반복되는 시간대·상황·감정을 찾아 근거로 짚어 줘(예: 요즘 저녁 회의 뒤에 과자를 찾는 일이 잦네요). 단정하지 말고 «~인 것 같아요»처럼 물어보듯.',
     '사용자가 포기하고 싶어 하거나, 이미 먹어서 자책하거나, 의지가 꺾였다고 말하면 Day 1에 스스로 정한 목표와 그 이유를 사용자 정보에서 찾아 한 문장으로 다정하게 상기시켜 줘.',
     '안전: 구토, 극단적 굶기, 자해나 죽고 싶다는 말이 나오면 도구보다 마음을 먼저 살피고, 전문가 도움(자살예방상담전화 109, 정신건강복지센터, 병원)을 부드럽게 권해. 너는 의사가 아니야.',
     '사용자 정보:\n' + userContext()
@@ -1296,6 +1386,7 @@ function render(keep) {
     case 'tools': v = viewTools(); break;
     case 'settings': v = viewSettings(); break;
     case 'ask': v = viewAsk(); break;
+    case 'diary': v = viewDiary(p[1]); break;
     case 't':
       v = ({ hunger: viewHunger, loop: viewLoop, signal: viewSignal, checkin: viewCheckin, c1: viewC1, c2: viewC2, rain: viewRain, noting: viewNoting, plateau: viewPlateau }[p[1]] || viewTools)(r.q); break;
     case 'g': v = viewGuide(p[1]); break;
